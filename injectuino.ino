@@ -1,9 +1,14 @@
+#include "config.h"
+#ifdef LCD20x4
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#else
 #include <LiquidCrystal.h>
+#endif
 #include <EEPROM.h>
 #include <EEPROMAnything.h>
 #include <TinyGPS.h>
 
-#include "config.h"
 #include "injection.c"
 
 #ifdef USE_FAT16
@@ -28,7 +33,12 @@ byte minute = 0;
 byte second = 0;
 
 // -- Display -----------------
+#ifdef LCD20x4
+//                    addr,en,rw,rs,d4,d5,d6,d7,bl,blpol
+LiquidCrystal_I2C lcd(0x3F, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
+#else
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+#endif
 byte oldButton = 0;
 char mode = 0;
 
@@ -71,12 +81,16 @@ struct MyConfig {
 } configuration;
 
 /* Save configuration to EEPROM */
-void backup(boolean stopBacklight) {
+void backup(boolean stopBacklight, boolean writeToSd) {
   unsigned long start, end;
   int realOffset = 1;
   if (stopBacklight) {
     // Save power by shutting down LCD backlight
+#ifdef LCD20x4
+    lcd.noBacklight();
+#else
     digitalWrite(BACKLIGHT_PIN, LOW);
+#endif
   } else {
     /*
     lcd.clear();
@@ -89,6 +103,22 @@ void backup(boolean stopBacklight) {
   configuration.writeCount += 1;
   EEPROM_writeAnything(realOffset, configuration);
   if (!stopBacklight) {
+    if (writeToSd) {
+#ifdef USE_FAT16
+      Fat16 dataFile;
+      if (dataFile.open(FILENAME_EEPROM, O_CREAT|O_WRITE)) {
+        dataFile.seekSet(0);
+#else
+      File dataFile = SD.open(FILENAME_EEPROM, FILE_WRITE);
+      if (dataFile) {
+        dataFile.seek(0);
+#endif
+        for (int i = 0; i < 1024; i++) {
+          dataFile.write((byte)EEPROM.read(i));
+        }
+        dataFile.close();
+      }
+    }
     end = millis();
     lcd.setCursor(0, 0);
     lcd.print("Saved off. ");
@@ -104,7 +134,7 @@ void backup(boolean stopBacklight) {
 
 /* ISR called when pin 2 falls down */
 void backupIsr() {
-  backup(true);
+  backup(true, false);
 }
 
 /* Load configuration from EEPROM */
@@ -119,7 +149,7 @@ void load() {
     eepromOffset += 1;
     EEPROM.write(0, eepromOffset);
     configuration.writeCount = 0;
-    backup(false);
+    backup(false, false);
     sei();
   }
 }
@@ -166,7 +196,7 @@ void readButtons() {
       if (mode == MODE_DAILY)
         newDaily();
       else
-        backup(false);
+        backup(false, true);
       break;
     default:
       break;
@@ -314,18 +344,21 @@ void readGps() {
     }
   }
 }
-
-void padPrintFloat(float num, float max_, char precision) {
+  
+void padPrintFloat2(float num, char units, char decis) {
   int num2 = abs(num);
-  max_ /= 10.0;
-  if (num < 0.0) {
-    max_ /= 100.0;
-  }
-  while (num2 <= max_ && 0.999 <= max_) {
+  byte digits = 0;
+  do {
+    digits++;
+    num2 /= 10;
+  } while (num2 > 0);
+  if (num < 0.0)
+    digits++;
+  while (units - digits > 0) {
     lcd.write(' ');
-    max_ /= 10.0;
+    digits++;
   }
-  lcd.print(num, precision);
+  lcd.print(num, decis);
 }
 
 void padPrintLong(long num, long max_, char pad) {
@@ -351,10 +384,10 @@ void printConsumption() {
   lcd.setCursor(7, 1);
   if (curSpeed < 10.1) {
     lcd.write(' ');
-    padPrintFloat(consPerHour, 99.9, 1);
+    padPrintFloat2(consPerHour, 2, 1);
     lcd.print("L/h ");
   } else {
-    padPrintFloat(instantCons, 999.9, 1);
+    padPrintFloat2(instantCons, 3, 1);
     lcd.print("L100");
   }
 }
@@ -366,15 +399,15 @@ void printMenu() {
     {
       padPrintLong(rpm, 9999, ' ');
       lcd.print("RPM   ");
-      padPrintFloat(duty * 100.0, 999.0, 1);
+      padPrintFloat2(duty * 100.0, 3, 1);
       lcd.print("%");
       break;
     }
     case MODE_DAILY:
     {
-      padPrintLong(daily.distance, 9999999L, ' ');
+      padPrintLong(daily.distance, 999999L, ' ');
       lcd.print("m ");
-      padPrintFloat(daily.liters, 99.0, 3);
+      padPrintFloat2(daily.liters, 3, 3);
       lcd.print("L ");
       break;
     }
@@ -382,7 +415,7 @@ void printMenu() {
     {
       padPrintLong((configuration.distanceM)/1000, 999999L, ' ');
       lcd.print("km ");
-      padPrintFloat(voltage, 99.0, 1);
+      padPrintFloat2(voltage, 2, 1);
 //      lcd.setCursor(15, 0);
       lcd.write('V');
       break;
@@ -397,21 +430,30 @@ void printMenu() {
         dte /= dailyCons;
       padPrintLong(long(dte), 9999, ' ');
       lcd.print("km ");
-      padPrintFloat(dailyCons, 99.0, 1);
+      padPrintFloat2(dailyCons, 2, 1);
       lcd.write('L');
       break;
     }
     case MODE_POSITION:
     {
-      padPrintFloat(lat, 99.9, 4);
+      padPrintFloat2(abs(lat), 2, 4);
+      lcd.write((lat>0)?'N':'S');
       lcd.setCursor(8, 0);
-      padPrintFloat(lon, 999.9, 4);
+      padPrintFloat2(abs(lon), 3, 4);
+      lcd.write((lon>0)?'E':'W');
       break;
     }
     case MODE_BACKLIGHT:
     {
       configuration.backlight = constrain(configuration.backlight, 0, 255);
+#ifdef LCD20x4
+      if (configuration.backlight == 0)
+        lcd.noBacklight();
+      else
+        lcd.backlight();
+#else
       analogWrite (BACKLIGHT_PIN, configuration.backlight);
+#endif
       lcd.print("Backlight: ");
       padPrintLong(configuration.backlight, 999, ' ');
       break;
@@ -419,7 +461,7 @@ void printMenu() {
     case MODE_INJFLOW:
     {
       lcd.print("Inj flow: ");
-      padPrintFloat(configuration.injectorFlow, 9999.9, 1);
+      padPrintFloat2(configuration.injectorFlow, 4, 1);
       break;
     }
     case MODE_LOGGING:
@@ -468,8 +510,12 @@ void printMenu() {
 }
 
 void setup() {
-  // set up the LCD's number of columns and rows: 
+  // set up the LCD's number of columns and rows:
+#ifdef LCD20x4
+  lcd.begin(20, 4);
+#else
   lcd.begin(16, 2);
+#endif
   lcd.clear();
 //  lcd.print("Hello, world!");
 
@@ -539,7 +585,7 @@ void loop() {
   readGps();
 
   injCompute(configuration.injectorFlow, &duty, &consPerHour, &rpm);
-  if (curSpeed > 0.0) {
+  if (refreshNow && (refreshStep % 4) == 3 && curSpeed > 0.0) {
     instantCons = consPerHour * 100.0 / curSpeed;
   }
   injTakeSample();
