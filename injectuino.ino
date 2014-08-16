@@ -154,20 +154,15 @@ void load() {
   }
 }
 
+#ifndef LCD20x4
 void readButtons() {
   byte button = 1 << (analogRead(0) >> 7);
   button = button & ~oldButton;
   switch (button) {
     case BTN_RIGHT:
       switch (mode) {
-        case MODE_DISTANCE:
-          configuration.distanceM++;
-          break;
         case MODE_BACKLIGHT:
           configuration.backlight += 4;
-          break;
-        case MODE_INJFLOW:
-          configuration.injectorFlow += 10.0;
           break;
       }
       break;
@@ -176,19 +171,13 @@ void readButtons() {
       lcd.clear();
       break;
     case BTN_DOWN:
-      mode = min(mode + 1, MODE_INJFLOW);
+      mode = min(mode + 1, MODE_BACKLIGHT);
       lcd.clear();
       break;
     case BTN_LEFT:
       switch (mode) {
-        case MODE_DISTANCE:
-          configuration.distanceM--;
-          break;
         case MODE_BACKLIGHT:
           configuration.backlight -= 4;
-          break;
-        case MODE_INJFLOW:
-          configuration.injectorFlow -= 10.0;
           break;
       }
       break;
@@ -203,6 +192,34 @@ void readButtons() {
   }
   oldButton = button;
 }
+#else
+void readButtons() {
+  byte button = 1 << (analogRead(0) >> 7);
+  button = button & ~oldButton;
+  switch (button) {
+    case BTN_RIGHT:
+      break;
+    case BTN_LEFT:
+      break;
+    case BTN_UP:
+      mode = max(mode - 1, 0);
+      lcd.clear();
+      break;
+    case BTN_DOWN:
+      mode = min(mode + 1, MODE_EXPERT);
+      lcd.clear();
+      break;
+    case BTN_SELECT:
+      if (mode == MODE_NORMAL)
+        newDaily();
+      else
+        backup(false, true);
+      break;
+    default:
+      break;
+  }
+}
+#endif
 
 void dateTime(uint16_t* date, uint16_t* time) {
   // return date using FAT_DATE macro to format fields
@@ -371,7 +388,11 @@ void padPrintLong(long num, long max_, char pad) {
 }
 
 void printGps() {
+#ifdef LCD20x4
+  lcd.setCursor(0, 3);
+#else
   lcd.setCursor(0, 1);
+#endif
   if (fix_age > 5000) {
     lcd.print("No GPS ");
   } else {
@@ -381,17 +402,36 @@ void printGps() {
 }
 
 void printConsumption() {
+#ifdef LCD20x4
+  lcd.setCursor(8, 3);
+#else
   lcd.setCursor(7, 1);
+#endif
   if (curSpeed < 10.1) {
     lcd.write(' ');
     padPrintFloat2(consPerHour, 2, 1);
     lcd.print("L/h ");
   } else {
+#ifdef LCD20x4
+    padPrintFloat2(instantCons, 3, 1);
+    lcd.print("L/100km");
+#else
     padPrintFloat2(instantCons, 3, 1);
     lcd.print("L100");
+#endif
   }
 }
 
+float computeDte() {
+  float dte = (68.0 - daily.liters) * 100.0;
+  if (curSpeed > 10.0)
+    dte /= (dailyCons * 9 + instantCons) / 10.0;
+  else
+    dte /= dailyCons;
+  return dte;
+}
+
+#ifndef LCD20x4
 void printMenu() {
   lcd.setCursor(0, 0);
   switch (mode) {
@@ -423,11 +463,7 @@ void printMenu() {
     case MODE_CONS_DTE:
     {
       lcd.print("DTE:");
-      float dte = (68.0 - daily.liters) * 100.0;
-      if (curSpeed > 10.0)
-        dte /= (dailyCons * 9 + instantCons) / 10.0;
-      else
-        dte /= dailyCons;
+      float dte = computeDte();
       padPrintLong(long(dte), 9999, ' ');
       lcd.print("km ");
       padPrintFloat2(dailyCons, 2, 1);
@@ -456,12 +492,6 @@ void printMenu() {
 #endif
       lcd.print("Backlight: ");
       padPrintLong(configuration.backlight, 999, ' ');
-      break;
-    }
-    case MODE_INJFLOW:
-    {
-      lcd.print("Inj flow: ");
-      padPrintFloat2(configuration.injectorFlow, 4, 1);
       break;
     }
     case MODE_LOGGING:
@@ -508,6 +538,59 @@ void printMenu() {
   printGps();
   printConsumption();
 }
+#else
+void printMenu() {
+  float dte;
+  lcd.setCursor(0, 0);
+  switch (mode) {
+    case MODE_NORMAL: // -------------------------
+      padPrintLong(rpm, 9999, ' ');
+      lcd.print("RPM ");
+      padPrintFloat2(duty * 100.0, 2, 1);
+      lcd.print("% ");
+      padPrintFloat2(voltage, 2, 1);
+      lcd.write('V');
+      lcd.setCursor(0, 1); // --------------------
+      lcd.print("Auto:");
+      dte = computeDte();
+      padPrintLong(long(dte), 9999, ' ');
+      lcd.print("km ");
+      padPrintFloat2(TANK_VOL - daily.liters, 2, 3);
+      lcd.print("L ");
+      lcd.setCursor(0, 2); // --------------------
+      padPrintFloat2(float(daily.distance)/1000, 4, 1);
+      lcd.print("km ");
+      padPrintFloat2(dailyCons, 2, 1);
+      lcd.print("L/100km");
+      break; // ----------------------------------
+    case MODE_EXPERT:
+      lcd.print("Total: ");
+      padPrintFloat2(float(configuration.distanceM)/1000.0, 6, 3);
+      lcd.print("km");
+      lcd.setCursor(0, 1); // --------------------
+      padPrintLong((hour + 2) % 24, 99, '0');
+      lcd.write(':');
+      padPrintLong(minute, 99, '0');
+      lcd.write(':');
+      padPrintLong(second, 99, '0');
+      lcd.write(' ');
+      padPrintLong(day, 99, '0');
+      lcd.write('/');
+      padPrintLong(month, 99, '0');
+      lcd.write('/');
+      padPrintLong(year, 9999, '0');
+      lcd.setCursor(0, 2); // --------------------
+      padPrintFloat2(abs(lat), 2, 4);
+      lcd.write((lat>0)?'N':'S');
+      lcd.write(' ');
+      padPrintFloat2(abs(lon), 3, 4);
+      lcd.write((lon>0)?'E':'W');
+      break; // ----------------------------------
+  }
+  printGps();
+  printConsumption();
+}
+#endif
 
 void setup() {
   // set up the LCD's number of columns and rows:
@@ -584,14 +667,14 @@ void loop() {
   injTakeSample();
   readGps();
 
-  injCompute(configuration.injectorFlow, &duty, &consPerHour, &rpm);
+  injCompute(&duty, &consPerHour, &rpm);
   if (refreshNow && (refreshStep % 4) == 3 && curSpeed > 0.0) {
     instantCons = consPerHour * 100.0 / curSpeed;
   }
   injTakeSample();
 
   if (refreshNow && !(refreshStep % 10)) {
-    injGetTotalLiters(configuration.injectorFlow, &liters);
+    injGetTotalLiters(&liters);
     daily.liters += liters - lastLiters;
     lastLiters = liters;
     if (daily.distance > 0.0)

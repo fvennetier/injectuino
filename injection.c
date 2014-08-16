@@ -64,8 +64,7 @@ void injTakeSample(void)
   sampleId = (sampleId + 1) % INJ_MEAN_SAMPLES;
 }
 
-void injCompute(float injectorCcByMin,
-    float *dutyCycle, float *consLiterPerHour, int *rpm)
+void injCompute(float *dutyCycle, float *consLiterPerHour, int *rpm)
 {
   float dutySum = 0;
   long rpmSum = 0;
@@ -78,15 +77,15 @@ void injCompute(float injectorCcByMin,
   *dutyCycle = dutySum / ((float)INJ_MEAN_SAMPLES);
   *rpm = rpmSum / INJ_MEAN_SAMPLES;
   // cc/min * 0.06 = L/h
-  *consLiterPerHour = injectorCcByMin * 0.06 * *dutyCycle;
+  *consLiterPerHour = INJ_CC_BY_MIN * 0.06 * *dutyCycle;
 }
 
-void injGetTotalLiters(float injectorCcByMin, float *totalLiters)
+void injGetTotalLiters(float *totalLiters)
 {
   unsigned long totalTime;
   cli();
   totalTime = injMillis;
   sei();
-  *totalLiters = ((float)totalTime) * injectorCcByMin / 60000000.0 * 1.024;
+  *totalLiters = ((float)totalTime) * INJ_CC_BY_MIN / 60000000.0 * 1.024;
 }
 

@@ -9,10 +9,14 @@
 # define INJ_READ_PIN 3
 #endif
 
+#ifndef INJ_CC_BY_MIN
+# define INJ_CC_BY_MIN 1040.0
+#endif
+
 void injInterrupt(void);
 void injTakeSample(void);
-void injCompute(float injectorCcByMin, float *dutyCycle, float *consLiterPerHour, int *rpm);
-void injGetTotalLiters(float injectorCcByMin, float *totalLiters);
+void injCompute(float *dutyCycle, float *consLiterPerHour, int *rpm);
+void injGetTotalLiters(float *totalLiters);
 
 #endif
 
