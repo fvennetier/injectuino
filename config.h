@@ -15,15 +15,23 @@
 #define KEYPAD_PIN A0
 #define VOLTAGE_PIN A1
 
-#define BTN_RIGHT   1
-#define BTN_UP      2
-#define BTN_DOWN    4
-#define BTN_LEFT    8
-#define BTN_SELECT 32
+#ifdef LCD20x4
+# define BTN_TOP    1
+# define BTN_MIDDLE 2
+# define BTN_BOTTOM 4
+#else
+# define BTN_RIGHT   1
+# define BTN_UP      2
+# define BTN_DOWN    4
+# define BTN_LEFT    8
+# define BTN_SELECT 32
+#endif
 
 #ifdef LCD20x4
 # define MODE_NORMAL 0
 # define MODE_EXPERT 1
+# define MODE_ACTION 2
+# define MODE_COUNT  3
 #else
 # define MODE_CONS_DTE    0
 # define MODE_DAILY       1
@@ -33,6 +41,7 @@
 # define MODE_POSITION    5
 # define MODE_LOGGING     6
 # define MODE_BACKLIGHT   7
+# define MODE_COUNT       8
 #endif
 
 #define TANK_VOL 68.0

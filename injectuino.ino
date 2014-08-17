@@ -155,7 +155,7 @@ void load() {
 }
 
 #ifndef LCD20x4
-void readButtons() {
+void reactButtons() {
   byte button = 1 << (analogRead(0) >> 7);
   button = button & ~oldButton;
   switch (button) {
@@ -193,26 +193,61 @@ void readButtons() {
   oldButton = button;
 }
 #else
-void readButtons() {
-  byte button = 1 << (analogRead(0) >> 7);
+byte readButtons() {
+  int value = 0;
+  int rawValue = (1023 - analogRead(0)) / 8;
+  switch (rawValue) {
+    case 4:
+    case 5:
+    case 6:
+      value = BTN_TOP;
+      break;
+    case 24:
+    case 25:
+      value = BTN_MIDDLE;
+      break;
+    case 61:
+    case 62:
+      value = BTN_BOTTOM;
+      break;
+    case 28:
+    case 29:
+      value = BTN_TOP | BTN_MIDDLE;
+      break;
+    case 64:
+    case 65:
+      value = BTN_TOP | BTN_BOTTOM;
+      break;
+    case 68:
+    case 69:
+      value = BTN_BOTTOM | BTN_MIDDLE;
+      break;
+    case 71:
+    case 72:
+      value = BTN_TOP | BTN_MIDDLE | BTN_BOTTOM;
+      break;
+  }
+  return value;
+}
+
+void reactButtons() {
+  byte button = readButtons();
   button = button & ~oldButton;
   switch (button) {
-    case BTN_RIGHT:
-      break;
-    case BTN_LEFT:
-      break;
-    case BTN_UP:
-      mode = max(mode - 1, 0);
+    case BTN_TOP:
+      mode = (mode + 1) % MODE_COUNT;
       lcd.clear();
       break;
-    case BTN_DOWN:
-      mode = min(mode + 1, MODE_EXPERT);
-      lcd.clear();
-      break;
-    case BTN_SELECT:
-      if (mode == MODE_NORMAL)
+    case BTN_MIDDLE:
+      if (mode == MODE_ACTION) {
         newDaily();
-      else
+      } else {
+        configuration.backlight = !configuration.backlight;
+        lcd.setBacklight(configuration.backlight);
+      }
+      break;
+    case BTN_BOTTOM:
+      if (mode == MODE_ACTION)
         backup(false, true);
       break;
     default:
@@ -378,11 +413,18 @@ void padPrintFloat2(float num, char units, char decis) {
   lcd.print(num, decis);
 }
 
-void padPrintLong(long num, long max_, char pad) {
-  max_ /= 10;
-  while (num <= max_ && 0 < max_) {
+void padPrintLong(long num, char units, char pad) {
+  long num2 = abs(num);
+  byte digits = 0;
+  do {
+    digits++;
+    num2 /= 10;
+  } while (num2 > 0);
+  if (num < 0)
+    digits++;
+  while (units - digits > 0) {
     lcd.write(pad);
-    max_ /= 10;
+    digits++;
   }
   lcd.print(num);
 }
@@ -396,7 +438,7 @@ void printGps() {
   if (fix_age > 5000) {
     lcd.print("No GPS ");
   } else {
-    padPrintLong(long(curSpeed), 999L, ' ');
+    padPrintLong(long(curSpeed), 3, ' ');
     lcd.print("kmh ");
   }
 }
@@ -437,7 +479,7 @@ void printMenu() {
   switch (mode) {
     case MODE_RPM_DUTY:
     {
-      padPrintLong(rpm, 9999, ' ');
+      padPrintLong(rpm, 4, ' ');
       lcd.print("RPM   ");
       padPrintFloat2(duty * 100.0, 3, 1);
       lcd.print("%");
@@ -445,7 +487,7 @@ void printMenu() {
     }
     case MODE_DAILY:
     {
-      padPrintLong(daily.distance, 999999L, ' ');
+      padPrintLong(daily.distance, 6, ' ');
       lcd.print("m ");
       padPrintFloat2(daily.liters, 3, 3);
       lcd.print("L ");
@@ -453,7 +495,7 @@ void printMenu() {
     }
     case MODE_DISTANCE:
     {
-      padPrintLong((configuration.distanceM)/1000, 999999L, ' ');
+      padPrintLong((configuration.distanceM)/1000, 6, ' ');
       lcd.print("km ");
       padPrintFloat2(voltage, 2, 1);
 //      lcd.setCursor(15, 0);
@@ -464,7 +506,7 @@ void printMenu() {
     {
       lcd.print("DTE:");
       float dte = computeDte();
-      padPrintLong(long(dte), 9999, ' ');
+      padPrintLong(long(dte), 4, ' ');
       lcd.print("km ");
       padPrintFloat2(dailyCons, 2, 1);
       lcd.write('L');
@@ -491,7 +533,7 @@ void printMenu() {
       analogWrite (BACKLIGHT_PIN, configuration.backlight);
 #endif
       lcd.print("Backlight: ");
-      padPrintLong(configuration.backlight, 999, ' ');
+      padPrintLong(configuration.backlight, 3, ' ');
       break;
     }
     case MODE_LOGGING:
@@ -525,11 +567,11 @@ void printMenu() {
     case MODE_TIME:
     {
       lcd.print("Time: ");
-      padPrintLong((hour + 2) % 24, 99, '0');
+      padPrintLong((hour + 2) % 24, 2, '0');
       lcd.write(':');
-      padPrintLong(minute, 99, '0');
+      padPrintLong(minute, 2, '0');
       lcd.write(':');
-      padPrintLong(second, 99, '0');
+      padPrintLong(second, 2, '0');
       break;
     }
     default:
@@ -544,7 +586,7 @@ void printMenu() {
   lcd.setCursor(0, 0);
   switch (mode) {
     case MODE_NORMAL: // -------------------------
-      padPrintLong(rpm, 9999, ' ');
+      padPrintLong(rpm, 4, ' ');
       lcd.print("RPM ");
       padPrintFloat2(duty * 100.0, 2, 1);
       lcd.print("% ");
@@ -553,7 +595,7 @@ void printMenu() {
       lcd.setCursor(0, 1); // --------------------
       lcd.print("Auto:");
       dte = computeDte();
-      padPrintLong(long(dte), 9999, ' ');
+      padPrintLong(long(dte), 4, ' ');
       lcd.print("km ");
       padPrintFloat2(TANK_VOL - daily.liters, 2, 3);
       lcd.print("L ");
@@ -568,17 +610,17 @@ void printMenu() {
       padPrintFloat2(float(configuration.distanceM)/1000.0, 6, 3);
       lcd.print("km");
       lcd.setCursor(0, 1); // --------------------
-      padPrintLong((hour + 2) % 24, 99, '0');
+      padPrintLong((hour + 2) % 24, 2, '0');
       lcd.write(':');
-      padPrintLong(minute, 99, '0');
+      padPrintLong(minute, 2, '0');
       lcd.write(':');
-      padPrintLong(second, 99, '0');
+      padPrintLong(second, 2, '0');
       lcd.write(' ');
-      padPrintLong(day, 99, '0');
+      padPrintLong(day, 2, '0');
       lcd.write('/');
-      padPrintLong(month, 99, '0');
+      padPrintLong(month, 2, '0');
       lcd.write('/');
-      padPrintLong(year, 9999, '0');
+      padPrintLong(year, 4, '0');
       lcd.setCursor(0, 2); // --------------------
       padPrintFloat2(abs(lat), 2, 4);
       lcd.write((lat>0)?'N':'S');
@@ -586,6 +628,15 @@ void printMenu() {
       padPrintFloat2(abs(lon), 3, 4);
       lcd.write((lon>0)?'E':'W');
       break; // ----------------------------------
+    case MODE_ACTION:
+      lcd.print("Fill tank with:");
+      padPrintFloat2(daily.liters, 2, 1);
+      lcd.write('L');
+      lcd.setCursor(0, 1);
+      lcd.print("Middle: reset trip");
+      lcd.setCursor(0, 2);
+      lcd.print("Bottom: save now");
+      break;
   }
   printGps();
   printConsumption();
@@ -685,7 +736,7 @@ void loop() {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, &fix_age);
   }
   if (refreshNow && (refreshStep % 2)) {
-    readButtons();
+    reactButtons();
   }
 }
 
