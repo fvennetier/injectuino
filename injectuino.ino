@@ -354,6 +354,10 @@ void readDaily() {
       ptr++;
     }
     dataFile.close();
+  } else {
+    lcd.setCursor(0, 0);
+    lcd.print(F("readDaily failed"));
+    delay(1000);
   }
 }
 
@@ -505,8 +509,12 @@ void printMenu() {
     case MODE_CONS_DTE:
     {
       lcd.print("DTE:");
-      float dte = computeDte();
-      padPrintLong(long(dte), 4, ' ');
+      if (dailyCons == 0.0) {
+        lcd.print(" ---");
+      } else {
+        float dte; = computeDte();
+        padPrintLong(long(dte), 4, ' ');
+      }
       lcd.print("km ");
       padPrintFloat2(dailyCons, 2, 1);
       lcd.write('L');
@@ -524,14 +532,7 @@ void printMenu() {
     case MODE_BACKLIGHT:
     {
       configuration.backlight = constrain(configuration.backlight, 0, 255);
-#ifdef LCD20x4
-      if (configuration.backlight == 0)
-        lcd.noBacklight();
-      else
-        lcd.backlight();
-#else
       analogWrite (BACKLIGHT_PIN, configuration.backlight);
-#endif
       lcd.print("Backlight: ");
       padPrintLong(configuration.backlight, 3, ' ');
       break;
@@ -559,7 +560,7 @@ void printMenu() {
         lcd.print("SD error ");
         lcd.print(int(card.errorCode));
 #else
-        lcd.print("No SD card");
+        lcd.print(F("No SD card"));
 #endif
       }
       break;
@@ -594,8 +595,12 @@ void printMenu() {
       lcd.write('V');
       lcd.setCursor(0, 1); // --------------------
       lcd.print("Auto:");
-      dte = computeDte();
-      padPrintLong(long(dte), 4, ' ');
+      if (dailyCons == 0.0) {
+        lcd.print(" ---");
+      } else {
+        dte = computeDte();
+        padPrintLong(long(dte), 4, ' ');
+      }
       lcd.print("km ");
       padPrintFloat2(TANK_VOL - daily.liters, 2, 3);
       lcd.print("L ");
@@ -629,13 +634,13 @@ void printMenu() {
       lcd.write((lon>0)?'E':'W');
       break; // ----------------------------------
     case MODE_ACTION:
-      lcd.print("Fill tank with:");
+      lcd.print(F("Fill tank with:"));
       padPrintFloat2(daily.liters, 2, 1);
       lcd.write('L');
       lcd.setCursor(0, 1);
-      lcd.print("Middle: reset trip");
+      lcd.print(F("Middle: reset trip"));
       lcd.setCursor(0, 2);
-      lcd.print("Bottom: save now");
+      lcd.print(F("Bottom: save now"));
       break;
   }
   printGps();
@@ -651,7 +656,7 @@ void setup() {
   lcd.begin(16, 2);
 #endif
   lcd.clear();
-//  lcd.print("Hello, world!");
+  lcd.print(F("Hello, world!"));
 
   pinMode(BACKLIGHT_PIN, OUTPUT);
 //  pinMode(CHIPSELECT_PIN, OUTPUT);
@@ -678,6 +683,11 @@ void setup() {
   SdFile::dateTimeCallback(dateTime);
 #endif
   readDaily();
+  if (!sdEnabled) {
+    lcd.setCursor(0, 1);
+    lcd.print(F("No SD card"));
+    delay(1000);
+  }
 
   // initialize with safe defaults
   if (configuration.lastLat == 0.0) {
