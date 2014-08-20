@@ -17,6 +17,7 @@ void injInterrupt(void);
 void injTakeSample(void);
 void injCompute(float *dutyCycle, float *consLiterPerHour, int *rpm);
 void injGetTotalLiters(float *totalLiters);
+void injSetTotalLiters(float totalLiters);
 
 #endif
 

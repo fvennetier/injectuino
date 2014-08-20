@@ -5,6 +5,7 @@
 #else
 #include <LiquidCrystal.h>
 #endif
+#include <avr/pgmspace.h>
 #include <EEPROM.h>
 #include <EEPROMAnything.h>
 #include <TinyGPS.h>
@@ -20,6 +21,13 @@
 #endif
 
 // -- GPS ---------------------
+#define PMTK_API_SET_FIX_CTL_2HZ  "$PMTK300,500,0,0,0,0*28"
+#define PMTK_API_SET_FIX_CTL_1HZ  "$PMTK300,1000,0,0,0,0*1C"
+#define PMTK_SET_BAUD_57600 "$PMTK251,57600*2C"
+#define PMTK_SET_BAUD_38400 "$PMTK251,38400*27"
+#define PMTK_SET_BAUD_19200 "$PMTK251,19200*22"
+#define PMTK_SET_BAUD_14400 "$PMTK251,14400*29"
+#define PMTK_SET_BAUD_9600 "$PMTK251,9600*17"
 TinyGPS gps;
 unsigned long fix_age = TinyGPS::GPS_INVALID_AGE;
 float lat = 0.0, lon = 0.0;
@@ -58,7 +66,6 @@ float duty = 0.0;
 float consPerHour = 0.0;
 float instantCons = 0.0;
 float voltage = 0.0;
-float lastLiters = 0.0;
 float dailyCons = 10.0;
 
 // -- Timing ------------------
@@ -253,6 +260,7 @@ void reactButtons() {
     default:
       break;
   }
+  oldButton = button;
 }
 #endif
 
@@ -265,8 +273,8 @@ void dateTime(uint16_t* date, uint16_t* time) {
 
 void readVoltage() {
   // val / resolution * vref * divisor
-  //  x  /    1024    *  5   *  3
-  voltage = analogRead(VOLTAGE_PIN) * 0.0146484375;
+  //  x  /    1023    *  5   *  3
+  voltage = analogRead(VOLTAGE_PIN) * 0.0146627566;
 }
 
 void writeLog() {
@@ -359,6 +367,7 @@ void readDaily() {
     lcd.print(F("readDaily failed"));
     delay(1000);
   }
+  injSetTotalLiters(daily.liters);
 }
 
 void newDaily() {
@@ -372,6 +381,8 @@ void newDaily() {
 #endif
   daily.distance = 0;
   daily.liters = 0.0;
+  dailyCons = 10.0;
+  injSetTotalLiters(daily.liters);
 }
 
 void readGps() {
@@ -383,14 +394,17 @@ void readGps() {
       if (gps.encode(incomingByte)) {
         gps.f_get_position(&lat, &lon, &fix_age);
         curSpeed = gps.f_speed_kmph();
-        fix_count = (fix_count + 1) % 10;
+        fix_count = (fix_count + 1) % 20;
       }
   }
 
-  if (fix_count == 0) {
+  // Only save every 20 updates, if travelled more than 10m.
+  // Do not compute delta if nothing received from Serial.
+  if (fix_count == 0 && incomingByte) {
     float delta = TinyGPS::distance_between(configuration.lastLat,
         configuration.lastLon, lat, lon);
-    if (delta >= 5.0) {
+    // 100 <= hdop <= 100000
+    if (delta >= float(gps.hdop()) / 10.0) {
       configuration.lastLat = lat;
       configuration.lastLon = lon;
       configuration.distanceM += delta;
@@ -433,14 +447,14 @@ void padPrintLong(long num, char units, char pad) {
   lcd.print(num);
 }
 
-void printGps() {
+void printSpeed() {
 #ifdef LCD20x4
   lcd.setCursor(0, 3);
 #else
   lcd.setCursor(0, 1);
 #endif
   if (fix_age > 5000) {
-    lcd.print("No GPS ");
+    lcd.print(F("No GPS "));
   } else {
     padPrintLong(long(curSpeed), 3, ' ');
     lcd.print("kmh ");
@@ -524,7 +538,7 @@ void printMenu() {
     {
       padPrintFloat2(abs(lat), 2, 4);
       lcd.write((lat>0)?'N':'S');
-      lcd.setCursor(8, 0);
+      lcd.write(' ');
       padPrintFloat2(abs(lon), 3, 4);
       lcd.write((lon>0)?'E':'W');
       break;
@@ -578,12 +592,11 @@ void printMenu() {
     default:
       break;
   }
-  printGps();
   printConsumption();
 }
 #else
 void printMenu() {
-  float dte;
+  float dte, hdop;
   lcd.setCursor(0, 0);
   switch (mode) {
     case MODE_NORMAL: // -------------------------
@@ -609,9 +622,10 @@ void printMenu() {
       lcd.print("km ");
       padPrintFloat2(dailyCons, 2, 1);
       lcd.print("L/100km");
+      printConsumption();
       break; // ----------------------------------
     case MODE_EXPERT:
-      lcd.print("Total: ");
+      lcd.print("Total:  ");
       padPrintFloat2(float(configuration.distanceM)/1000.0, 6, 3);
       lcd.print("km");
       lcd.setCursor(0, 1); // --------------------
@@ -620,6 +634,7 @@ void printMenu() {
       padPrintLong(minute, 2, '0');
       lcd.write(':');
       padPrintLong(second, 2, '0');
+      lcd.write(fix_count == 1? '-':' ');
       lcd.write(' ');
       padPrintLong(day, 2, '0');
       lcd.write('/');
@@ -627,14 +642,18 @@ void printMenu() {
       lcd.write('/');
       padPrintLong(year, 4, '0');
       lcd.setCursor(0, 2); // --------------------
-      padPrintFloat2(abs(lat), 2, 4);
+      padPrintFloat2(abs(lat), 2, 5);
       lcd.write((lat>0)?'N':'S');
       lcd.write(' ');
-      padPrintFloat2(abs(lon), 3, 4);
+      padPrintFloat2(abs(lon), 3, 5);
       lcd.write((lon>0)?'E':'W');
+      lcd.setCursor(7, 3);
+      lcd.print(F("HDOP:"));
+      hdop = min(gps.hdop(), 9999999);
+      padPrintFloat2(float(hdop)/100.0, 4, 2);
       break; // ----------------------------------
     case MODE_ACTION:
-      lcd.print(F("Fill tank with:"));
+      lcd.print(F("Fill tank with "));
       padPrintFloat2(daily.liters, 2, 1);
       lcd.write('L');
       lcd.setCursor(0, 1);
@@ -643,8 +662,6 @@ void printMenu() {
       lcd.print(F("Bottom: save now"));
       break;
   }
-  printGps();
-  printConsumption();
 }
 #endif
 
@@ -705,7 +722,18 @@ void setup() {
   analogWrite (BACKLIGHT_PIN, configuration.backlight);
 
   // start listening to GPS
+  /*
   Serial.begin(9600);
+  Serial.println(F(PMTK_SET_BAUD_19200));
+  delay(100);
+  */
+  /*
+  Serial.begin(19200);
+
+  Serial.println(F(PMTK_SET_BAUD_14400));
+  delay(100);
+  */
+  Serial.begin(14400);
 
   // attach powerdown interrupt to backup
   attachInterrupt(0, backupIsr, FALLING);
@@ -714,39 +742,43 @@ void setup() {
 }
 
 void loop() {
-  boolean refreshNow = false;
   unsigned long now = millis();
-  float liters;
-
-  if (now - lastRefreshTime > 50) {
-    printMenu();
-    lastRefreshTime = now;
-    refreshStep++;
-    refreshNow = true;
-  }
-
-  injTakeSample();
+  
   readGps();
 
-  injCompute(&duty, &consPerHour, &rpm);
-  if (refreshNow && (refreshStep % 4) == 3 && curSpeed > 0.0) {
-    instantCons = consPerHour * 100.0 / curSpeed;
+  if (now - lastRefreshTime < 50) {
+    // Less than 50ms were elapsed, don't do anything
+    return;
   }
-  injTakeSample();
+  lastRefreshTime = now;
+  refreshStep++;
 
-  if (refreshNow && !(refreshStep % 10)) {
-    injGetTotalLiters(&liters);
-    daily.liters += liters - lastLiters;
-    lastLiters = liters;
+  // Probe injection each 4 loops (200ms)
+  if ((refreshStep % 4) == 0) { // %16 -> 0, 4, 8, 12
+    injTakeSample();
+    injCompute(&duty, &consPerHour, &rpm);
+    if (curSpeed > 0.0) {
+      instantCons = consPerHour * 100.0 / curSpeed;
+    }
+  }
+
+  // Refresh consumption every 8 loops (400ms), not at the same time as injection
+  if ((refreshStep % 8) == 2) { // %16 -> 2, 10
+    injGetTotalLiters(&(daily.liters));
     if (daily.distance > 0.0)
       dailyCons = daily.liters / float(daily.distance) * 100000.0;
   }
-  if (refreshNow && (refreshStep % 10) == 1) {
+  // Refresh voltage each 16 loops (800ms)
+  if ((refreshStep % 16) == 6) {
     readVoltage();
+  }
+  // React to user key presses each odd loop (100ms), and refresh time each even
+  if (refreshStep % 2) {
+    reactButtons();
+  } else {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, &fix_age);
   }
-  if (refreshNow && (refreshStep % 2)) {
-    reactButtons();
-  }
+  printMenu();
+  printSpeed();
 }
 

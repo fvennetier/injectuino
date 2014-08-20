@@ -4,6 +4,8 @@
 
 #include "injection.h"
 
+#define MILLIS_TO_LITERS (INJ_CC_BY_MIN / 60000000.0 * 1.024)
+
 static unsigned long lastInjMillis = 0;
 static unsigned long lastSampleTime = 0;
 static volatile uint32_t injMillis = 0, injMicros = 0;
@@ -86,6 +88,12 @@ void injGetTotalLiters(float *totalLiters)
   cli();
   totalTime = injMillis;
   sei();
-  *totalLiters = ((float)totalTime) * INJ_CC_BY_MIN / 60000000.0 * 1.024;
+  *totalLiters = ((float)totalTime) * MILLIS_TO_LITERS;
+}
+
+void injSetTotalLiters(float totalLiters) {
+  cli();
+  injMillis = (unsigned long)totalLiters / MILLIS_TO_LITERS;
+  sei();
 }
 
