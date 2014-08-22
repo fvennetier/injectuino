@@ -87,6 +87,10 @@ struct MyConfig {
   int backlight;
 } configuration;
 
+#define message(msg) lcd.setCursor(0, 0);\
+  lcd.print(msg);\
+  delay(1000);
+
 /* Save configuration to EEPROM */
 void backup(boolean stopBacklight, boolean writeToSd) {
   unsigned long start, end;
@@ -128,7 +132,7 @@ void backup(boolean stopBacklight, boolean writeToSd) {
     }
     end = millis();
     lcd.setCursor(0, 0);
-    lcd.print("Saved off. ");
+    lcd.print(F("Saved off. "));
     lcd.print(eepromOffset);
     /*
     lcd.setCursor(0, 1);
@@ -287,6 +291,7 @@ void writeLog() {
   File dataFile = SD.open(FILENAME_LOG, FILE_WRITE);
   if (dataFile) {
 #endif
+    // Datetime
     dataFile.print(year);
     dataFile.write('-');
     if (month < 10)
@@ -310,16 +315,21 @@ void writeLog() {
     dataFile.print(second);
     dataFile.write('Z');
     dataFile.write(',');
+    // Latitude and longitude
     dataFile.print(long(lat * 1000000L));
     dataFile.write(',');
     dataFile.print(long(lon * 1000000L));
     dataFile.write(',');
+    // Current speed
     dataFile.print(int(curSpeed));
     dataFile.write(',');
+    // Current duty cycle
     dataFile.print(int(duty * 100));
     dataFile.write(',');
+    // Current RPM
     dataFile.print(rpm);
     dataFile.write(',');
+    // Current total distance
     dataFile.print(configuration.distanceM);
     dataFile.write('\n');
     dataFile.close();
@@ -364,8 +374,7 @@ void readDaily() {
     dataFile.close();
   } else {
     lcd.setCursor(0, 0);
-    lcd.print(F("readDaily failed"));
-    delay(1000);
+    message(F("readDaily failed"));
   }
   injSetTotalLiters(daily.liters);
 }
@@ -389,28 +398,21 @@ void readGps() {
   int incomingByte = 0;
 
   while (Serial.available() > 0) {
-      incomingByte = Serial.read();
+    incomingByte = Serial.read();
 
-      if (gps.encode(incomingByte)) {
-        gps.f_get_position(&lat, &lon, &fix_age);
-        curSpeed = gps.f_speed_kmph();
-        fix_count = (fix_count + 1) % 20;
+    if (gps.encode(incomingByte)) {
+      gps.f_get_position(&lat, &lon, &fix_age);
+      curSpeed = gps.f_speed_kmph();
+      fix_count = (fix_count + 1) % 20;
+      float delta = TinyGPS::distance_between(configuration.lastLat,
+          configuration.lastLon, lat, lon);
+      // 100 <= hdop <= 100000 --> delta >= 10m
+      if (delta >= float(gps.hdop()) / 10.0) {
+        configuration.lastLat = lat;
+        configuration.lastLon = lon;
+        configuration.distanceM += delta;
+        daily.distance += delta;
       }
-  }
-
-  // Only save every 20 updates, if travelled more than 10m.
-  // Do not compute delta if nothing received from Serial.
-  if (fix_count == 0 && incomingByte) {
-    float delta = TinyGPS::distance_between(configuration.lastLat,
-        configuration.lastLon, lat, lon);
-    // 100 <= hdop <= 100000
-    if (delta >= float(gps.hdop()) / 10.0) {
-      configuration.lastLat = lat;
-      configuration.lastLon = lon;
-      configuration.distanceM += delta;
-      daily.distance += delta;
-      writeLog();
-      writeDaily(FILENAME_DAILY, false);
     }
   }
 }
@@ -685,6 +687,23 @@ void setup() {
   // load configuration from EEPROM
   load();
 
+  // start listening to GPS
+  /*
+  Serial.begin(9600);
+  Serial.println(F(PMTK_SET_BAUD_19200));
+  delay(100);
+  */
+  /*
+  Serial.begin(19200);
+
+  Serial.println(F(PMTK_SET_BAUD_14400));
+  delay(100);
+  */
+  Serial.begin(14400);
+  delay(500);
+  // If we are lucky enough, we can get a time fix now
+  readGps();
+
   // load daily data from SD card
 #ifdef USE_FAT16
   Fat16::dateTimeCallback(dateTime);
@@ -699,12 +718,11 @@ void setup() {
   sdEnabled = SD.begin(CHIPSELECT_PIN);
   SdFile::dateTimeCallback(dateTime);
 #endif
-  readDaily();
   if (!sdEnabled) {
     lcd.setCursor(0, 1);
-    lcd.print(F("No SD card"));
-    delay(1000);
+    message(F("No SD card"));
   }
+  readDaily();
 
   // initialize with safe defaults
   if (configuration.lastLat == 0.0) {
@@ -720,20 +738,6 @@ void setup() {
 
   // set LCD backlight
   analogWrite (BACKLIGHT_PIN, configuration.backlight);
-
-  // start listening to GPS
-  /*
-  Serial.begin(9600);
-  Serial.println(F(PMTK_SET_BAUD_19200));
-  delay(100);
-  */
-  /*
-  Serial.begin(19200);
-
-  Serial.println(F(PMTK_SET_BAUD_14400));
-  delay(100);
-  */
-  Serial.begin(14400);
 
   // attach powerdown interrupt to backup
   attachInterrupt(0, backupIsr, FALLING);
@@ -777,6 +781,12 @@ void loop() {
     reactButtons();
   } else {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, &fix_age);
+    // Save daily data on SD card every 12.8s
+    if (refreshStep == 255) {
+      writeDaily(FILENAME_DAILY, false);
+    } else if (refreshStep == 127) {
+      writeLog();
+    }
   }
   printMenu();
   printSpeed();
