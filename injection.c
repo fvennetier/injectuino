@@ -93,7 +93,7 @@ void injGetTotalLiters(float *totalLiters)
 
 void injSetTotalLiters(float totalLiters) {
   cli();
-  injMillis = (unsigned long)totalLiters / MILLIS_TO_LITERS;
+  injMillis = (unsigned long)(totalLiters / MILLIS_TO_LITERS);
   sei();
 }
 
