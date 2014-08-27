@@ -51,7 +51,6 @@ byte oldButton = 0;
 char mode = 0;
 
 // -- SD Card -----------------
-boolean sdEnabled = false;
 #ifdef USE_FAT16
 SdCard card;
 #endif
@@ -195,8 +194,10 @@ void reactButtons() {
     case BTN_SELECT:
       if (mode == MODE_DAILY)
         newDaily();
-      else
+      else {
         backup(false, true);
+        writeDaily(FILENAME_DAILY, false);
+      }
       break;
     default:
       break;
@@ -258,8 +259,10 @@ void reactButtons() {
       }
       break;
     case BTN_BOTTOM:
-      if (mode == MODE_ACTION)
+      if (mode == MODE_ACTION) {
         backup(false, true);
+        writeDaily(FILENAME_DAILY, false);
+      }
       break;
     default:
       break;
@@ -278,12 +281,10 @@ void dateTime(uint16_t* date, uint16_t* time) {
 void readVoltage() {
   // val / resolution * vref * divisor
   //  x  /    1023    *  5   *  3
-  voltage = analogRead(VOLTAGE_PIN) * 0.0146627566;
+  voltage = analogRead(VOLTAGE_PIN) * 0.0146627566 + 0.7;
 }
 
 void writeLog() {
-  if (!sdEnabled)
-    return;
 #ifdef USE_FAT16
   Fat16 dataFile;
   if (dataFile.open(FILENAME_LOG, O_CREAT|O_WRITE|O_APPEND)) {
@@ -316,15 +317,15 @@ void writeLog() {
     dataFile.write('Z');
     dataFile.write(',');
     // Latitude and longitude
-    dataFile.print(long(lat * 1000000L));
+    dataFile.print(lat, 6);
     dataFile.write(',');
-    dataFile.print(long(lon * 1000000L));
+    dataFile.print(lon, 6);
     dataFile.write(',');
     // Current speed
     dataFile.print(int(curSpeed));
     dataFile.write(',');
     // Current duty cycle
-    dataFile.print(int(duty * 100));
+    dataFile.print(duty * 100.0, 1);
     dataFile.write(',');
     // Current RPM
     dataFile.print(rpm);
@@ -337,27 +338,36 @@ void writeLog() {
 }
 
 void writeDaily(const char *fileName, bool append) {
-  if (!sdEnabled)
-    return;
+  boolean failed = false;
 #ifdef USE_FAT16
   Fat16 dataFile;
   if (dataFile.open(FILENAME_DAILY, O_CREAT|O_WRITE)) {
-    if (!append)
+    if (!append) {
       dataFile.seekSet(0);
+    }
 #else
   File dataFile = SD.open(fileName, FILE_WRITE);
   if (dataFile) {
-    if (!append)
-      dataFile.seek(0);
+    if (!append) {
+      if (!dataFile.seek(0)) {
+        failed = true;
+      }
+    }
 #endif
-    dataFile.write((byte*)&daily, sizeof(daily));
+    if (dataFile.write((byte*)&daily, sizeof(struct daily)) != sizeof(struct daily)) {
+      failed = true;
+    }
+    dataFile.write('\n');
     dataFile.close();
+  } else {
+    failed = true;
+  }
+  if (failed) {
+    message(F("writeDaily failed"));
   }
 }
 
 void readDaily() {
-  if (!sdEnabled)
-    return;
 #ifdef USE_FAT16
   Fat16 dataFile;
   if (dataFile.open(FILENAME_LOG, O_CREAT|O_WRITE|O_APPEND)) {
@@ -367,13 +377,12 @@ void readDaily() {
 #endif
     int val = 0;
     byte *ptr = (byte*)&daily;
-    while ((val = dataFile.read()) >= 0) {
+    while ((val = dataFile.read()) >= 0 && (ptr - (byte*)&daily) < sizeof(daily)) {
       *ptr = (byte)val;
       ptr++;
     }
     dataFile.close();
   } else {
-    lcd.setCursor(0, 0);
     message(F("readDaily failed"));
   }
   injSetTotalLiters(daily.liters);
@@ -472,7 +481,7 @@ void printConsumption() {
   if (curSpeed < 10.1) {
     lcd.write(' ');
     padPrintFloat2(consPerHour, 2, 1);
-    lcd.print("L/h ");
+    lcd.print("L/h    ");
   } else {
 #ifdef LCD20x4
     padPrintFloat2(instantCons, 3, 1);
@@ -603,10 +612,10 @@ void printMenu() {
   switch (mode) {
     case MODE_NORMAL: // -------------------------
       padPrintLong(rpm, 4, ' ');
-      lcd.print("RPM ");
-      padPrintFloat2(duty * 100.0, 2, 1);
-      lcd.print("% ");
-      padPrintFloat2(voltage, 2, 1);
+      lcd.print("RPM");
+      padPrintFloat2(duty * 100.0, 3, 1);
+      lcd.write('%');
+      padPrintFloat2(voltage, 3, 1);
       lcd.write('V');
       lcd.setCursor(0, 1); // --------------------
       lcd.print("Auto:");
@@ -616,13 +625,13 @@ void printMenu() {
         dte = computeDte();
         padPrintLong(long(dte), 4, ' ');
       }
-      lcd.print("km ");
-      padPrintFloat2(TANK_VOL - daily.liters, 2, 3);
-      lcd.print("L ");
+      lcd.print("km");
+      padPrintFloat2(TANK_VOL - daily.liters, 3, 3);
+      lcd.write('L');
       lcd.setCursor(0, 2); // --------------------
       padPrintFloat2(float(daily.distance)/1000, 4, 1);
-      lcd.print("km ");
-      padPrintFloat2(dailyCons, 2, 1);
+      lcd.print("km");
+      padPrintFloat2(dailyCons, 3, 1);
       lcd.print("L/100km");
       printConsumption();
       break; // ----------------------------------
@@ -651,7 +660,7 @@ void printMenu() {
       lcd.write((lon>0)?'E':'W');
       lcd.setCursor(7, 3);
       lcd.print(F("HDOP:"));
-      hdop = min(gps.hdop(), 9999999);
+      hdop = min(gps.hdop(), 999999);
       padPrintFloat2(float(hdop)/100.0, 4, 2);
       break; // ----------------------------------
     case MODE_ACTION:
@@ -662,12 +671,16 @@ void printMenu() {
       lcd.print(F("Middle: reset trip"));
       lcd.setCursor(0, 2);
       lcd.print(F("Bottom: save now"));
+      lcd.setCursor(8, 3);
+      lcd.print(F("Free RAM:"));
+      lcd.print(FreeRam());
       break;
   }
 }
 #endif
 
 void setup() {
+  boolean sdEnabled = false;
   // set up the LCD's number of columns and rows:
 #ifdef LCD20x4
   lcd.begin(20, 4);
@@ -675,7 +688,7 @@ void setup() {
   lcd.begin(16, 2);
 #endif
   lcd.clear();
-  lcd.print(F("Hello, world!"));
+//  lcd.print(F("Hello, world!"));
 
   pinMode(BACKLIGHT_PIN, OUTPUT);
 //  pinMode(CHIPSELECT_PIN, OUTPUT);
@@ -782,9 +795,9 @@ void loop() {
   } else {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, &fix_age);
     // Save daily data on SD card every 12.8s
-    if (refreshStep == 255) {
+    if (refreshStep == 244) { // % 16 -> 4
       writeDaily(FILENAME_DAILY, false);
-    } else if (refreshStep == 127) {
+    } else if (refreshStep == 126) { // %16 -> 14
       writeLog();
     }
   }

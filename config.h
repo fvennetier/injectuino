@@ -2,7 +2,7 @@
 #define INJ_OFFSET_MICROS 1000
 #define INJ_CC_BY_MIN 1000.0
 #define FILENAME_LOG "logging.txt"
-#define FILENAME_DAILY ((char*)"daily.dat")
+#define FILENAME_DAILY "trip.dat"
 #define FILENAME_OLDDAILY "history.dat"
 #define FILENAME_EEPROM "eeprom.dat"
 
