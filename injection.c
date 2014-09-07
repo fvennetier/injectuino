@@ -77,6 +77,7 @@ void injCompute(float *dutyCycle, float *consLiterPerHour, int *rpm)
     rpmSum += rpmArr[i];
   }
   *dutyCycle = dutySum / ((float)INJ_MEAN_SAMPLES);
+  *dutyCycle = min(100.0, *dutyCycle);
   *rpm = rpmSum / INJ_MEAN_SAMPLES;
   // cc/min * 0.06 = L/h
   *consLiterPerHour = INJ_CC_BY_MIN * 0.06 * *dutyCycle;
@@ -94,6 +95,7 @@ void injGetTotalLiters(float *totalLiters)
 void injSetTotalLiters(float totalLiters) {
   cli();
   injMillis = (unsigned long)(totalLiters / MILLIS_TO_LITERS);
+  lastInjMillis = injMillis;
   sei();
 }
 

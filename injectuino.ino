@@ -478,7 +478,7 @@ void printConsumption() {
 #else
   lcd.setCursor(7, 1);
 #endif
-  if (curSpeed < 10.1) {
+  if (curSpeed < 15.0) {
     lcd.write(' ');
     padPrintFloat2(consPerHour, 2, 1);
     lcd.print("L/h    ");
@@ -495,8 +495,8 @@ void printConsumption() {
 
 float computeDte() {
   float dte = (68.0 - daily.liters) * 100.0;
-  if (curSpeed > 10.0)
-    dte /= (dailyCons * 9 + instantCons) / 10.0;
+  if (curSpeed > 15.0)
+    dte /= (dailyCons * 19 + instantCons) / 20.0;
   else
     dte /= dailyCons;
   return dte;
@@ -700,6 +700,18 @@ void setup() {
   // load configuration from EEPROM
   load();
 
+  // initialize with safe defaults
+  if (configuration.lastLat == 0.0) {
+    configuration.lastLat = 50.6065753;
+    configuration.lastLon = 3.0758584;
+    configuration.distanceM = 0;
+    /* 216-260 per injector, 4 injectors. */
+    configuration.injectorFlow = 1040.0;
+    configuration.backlight = 80;
+  }
+  lat = configuration.lastLat;
+  lon = configuration.lastLon;
+
   // start listening to GPS
   /*
   Serial.begin(9600);
@@ -737,20 +749,12 @@ void setup() {
   }
   readDaily();
 
-  // initialize with safe defaults
-  if (configuration.lastLat == 0.0) {
-    configuration.lastLat = 50.6065753;
-    configuration.lastLon = 3.0758584;
-    configuration.distanceM = 0;
-    /* 216-260 per injector, 4 injectors. */
-    configuration.injectorFlow = 1040.0;
-    configuration.backlight = 80;
-  }
-  lat = configuration.lastLat;
-  lon = configuration.lastLon;
-
   // set LCD backlight
+#ifndef LCD20x4
   analogWrite (BACKLIGHT_PIN, configuration.backlight);
+#else
+  lcd.setBacklight(configuration.backlight);
+#endif
 
   // attach powerdown interrupt to backup
   attachInterrupt(0, backupIsr, FALLING);
@@ -796,6 +800,12 @@ void loop() {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, &fix_age);
     // Save daily data on SD card every 12.8s
     if (refreshStep == 244) { // % 16 -> 4
+#ifdef LCD20x4
+      lcd.setCursor(6, 3);
+#else
+      lcd.setCursor(6, 1);
+#endif
+      lcd.write('-');
       writeDaily(FILENAME_DAILY, false);
     } else if (refreshStep == 126) { // %16 -> 14
       writeLog();
