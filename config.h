@@ -1,10 +1,11 @@
-#define INJ_MEAN_SAMPLES 8
+#define INJ_MEAN_SAMPLES 4
 #define INJ_OFFSET_MICROS 1000
 #define INJ_CC_BY_MIN 1000.0
 #define FILENAME_LOG "logging.txt"
 #define FILENAME_DAILY "trip.dat"
 #define FILENAME_OLDDAILY "history.dat"
 #define FILENAME_EEPROM "eeprom.dat"
+#define FILENAME_LOADME "loadme.rom"
 
 #define LCD20x4
 

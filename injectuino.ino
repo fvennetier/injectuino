@@ -12,13 +12,7 @@
 
 #include "injection.c"
 
-#ifdef USE_FAT16
-#include <SPI.h>
-#include <SdCard.h>
-#include <Fat16.h>
-#else
 #include <SD.h>
-#endif
 
 // -- GPS ---------------------
 #define PMTK_API_SET_FIX_CTL_2HZ  "$PMTK300,500,0,0,0,0*28"
@@ -51,9 +45,6 @@ byte oldButton = 0;
 char mode = 0;
 
 // -- SD Card -----------------
-#ifdef USE_FAT16
-SdCard card;
-#endif
 struct daily {
   unsigned long distance;
   float liters;
@@ -97,47 +88,32 @@ void backup(boolean stopBacklight, boolean writeToSd) {
   if (stopBacklight) {
     // Save power by shutting down LCD backlight
 #ifdef LCD20x4
+    /* Do not stop backlight when called from ISR,
+	 * because I2C communication doesn't work.
     lcd.noBacklight();
+	 */
 #else
     digitalWrite(BACKLIGHT_PIN, LOW);
 #endif
-  } else {
-    /*
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Saving...");
-    */
-    start = millis();
   }
   realOffset += eepromOffset * sizeof(MyConfig);
   configuration.writeCount += 1;
   EEPROM_writeAnything(realOffset, configuration);
   if (!stopBacklight) {
     if (writeToSd) {
-#ifdef USE_FAT16
-      Fat16 dataFile;
-      if (dataFile.open(FILENAME_EEPROM, O_CREAT|O_WRITE)) {
-        dataFile.seekSet(0);
-#else
       File dataFile = SD.open(FILENAME_EEPROM, FILE_WRITE);
       if (dataFile) {
         dataFile.seek(0);
-#endif
         for (int i = 0; i < 1024; i++) {
           dataFile.write((byte)EEPROM.read(i));
         }
         dataFile.close();
       }
     }
-    end = millis();
     lcd.setCursor(0, 0);
     lcd.print(F("Saved off. "));
     lcd.print(eepromOffset);
-    /*
-    lcd.setCursor(0, 1);
-    lcd.print(end - start);
-    lcd.print("ms");
-    */
+
     delay(1000);
   }
 }
@@ -284,14 +260,38 @@ void readVoltage() {
   voltage = analogRead(VOLTAGE_PIN) * 0.0146627566 + 0.7;
 }
 
+float readVcc() {
+  // http://provideyourown.com/2012/secret-arduino-voltmeter-measure-battery-voltage/
+  // Read 1.1V reference against AVcc
+  // set the reference to Vcc and the measurement to the internal 1.1V reference
+  #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+    ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  #elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
+    ADMUX = _BV(MUX5) | _BV(MUX0);
+  #elif defined (__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
+    ADMUX = _BV(MUX3) | _BV(MUX2);
+  #else
+    ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  #endif  
+ 
+  delay(2); // Wait for Vref to settle
+  ADCSRA |= _BV(ADSC); // Start conversion
+  while (bit_is_set(ADCSRA,ADSC)); // measuring
+ 
+  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH  
+  uint8_t high = ADCH; // unlocks both
+ 
+  long result = (high<<8) | low;
+ 
+  return 1125.3 / float(result); // Calculate Vcc (in V); 1125.3 = 1.1*1023
+}
+
 void writeLog() {
-#ifdef USE_FAT16
-  Fat16 dataFile;
-  if (dataFile.open(FILENAME_LOG, O_CREAT|O_WRITE|O_APPEND)) {
-#else
+  if (year <= 2000) {
+    return;
+  }
   File dataFile = SD.open(FILENAME_LOG, FILE_WRITE);
   if (dataFile) {
-#endif
     // Datetime
     dataFile.print(year);
     dataFile.write('-');
@@ -339,13 +339,6 @@ void writeLog() {
 
 void writeDaily(const char *fileName, bool append) {
   boolean failed = false;
-#ifdef USE_FAT16
-  Fat16 dataFile;
-  if (dataFile.open(FILENAME_DAILY, O_CREAT|O_WRITE)) {
-    if (!append) {
-      dataFile.seekSet(0);
-    }
-#else
   File dataFile = SD.open(fileName, FILE_WRITE);
   if (dataFile) {
     if (!append) {
@@ -353,7 +346,6 @@ void writeDaily(const char *fileName, bool append) {
         failed = true;
       }
     }
-#endif
     if (dataFile.write((byte*)&daily, sizeof(struct daily)) != sizeof(struct daily)) {
       failed = true;
     }
@@ -368,13 +360,8 @@ void writeDaily(const char *fileName, bool append) {
 }
 
 void readDaily() {
-#ifdef USE_FAT16
-  Fat16 dataFile;
-  if (dataFile.open(FILENAME_LOG, O_CREAT|O_WRITE|O_APPEND)) {
-#else
   File dataFile = SD.open(FILENAME_DAILY, FILE_READ);
   if (dataFile) {
-#endif
     int val = 0;
     byte *ptr = (byte*)&daily;
     while ((val = dataFile.read()) >= 0 && (ptr - (byte*)&daily) < sizeof(daily)) {
@@ -392,15 +379,25 @@ void newDaily() {
   // Write daily data to another file
   writeDaily(FILENAME_OLDDAILY, true);
   // Reset the main file
-#ifdef USE_FAT16
-  Fat16::remove(FILENAME_DAILY);
-#else
   SD.remove(FILENAME_DAILY);
-#endif
   daily.distance = 0;
   daily.liters = 0.0;
   dailyCons = 10.0;
   injSetTotalLiters(daily.liters);
+}
+
+void loadMe() {
+  File dataFile = SD.open(FILENAME_LOADME, FILE_READ);
+  if (dataFile) {
+    int val = 0;
+    byte *ptr = (byte*)&configuration;
+    while ((val = dataFile.read()) >= 0 &&
+        (ptr - (byte*)&configuration) < sizeof(configuration)) {
+      *ptr = (byte)val;
+      ptr++;
+    }
+    dataFile.close();
+  }
 }
 
 void readGps() {
@@ -416,11 +413,13 @@ void readGps() {
       float delta = TinyGPS::distance_between(configuration.lastLat,
           configuration.lastLon, lat, lon);
       // 100 <= hdop <= 100000 --> delta >= 10m
-      if (delta >= float(gps.hdop()) / 10.0) {
+      if (delta >= float(gps.hdop()) / 10.0 && fix_age < 2000) {
         configuration.lastLat = lat;
         configuration.lastLon = lon;
-        configuration.distanceM += delta;
-        daily.distance += delta;
+        if (delta < 15000) {
+          configuration.distanceM += delta;
+          daily.distance += delta;
+        }
       }
     }
   }
@@ -566,34 +565,23 @@ void printMenu() {
     {
       if (sdEnabled) {
         unsigned long fileSize = 0;
-#ifdef USE_FAT16
-        Fat16 dataFile;
-        if (dataFile.open(FILENAME_LOG, O_CREAT|O_WRITE|O_APPEND)) {
-          fileSize = dataFile.fileSize();
-#else
         File dataFile = SD.open(FILENAME_LOG, FILE_READ);
         if (dataFile) {
           fileSize = dataFile.size();
-#endif
           dataFile.close();
         }
         lcd.print("Log: ");
         lcd.print(fileSize);
         lcd.write('b');
       } else {
-#ifdef USE_FAT16
-        lcd.print("SD error ");
-        lcd.print(int(card.errorCode));
-#else
         lcd.print(F("No SD card"));
-#endif
       }
       break;
     }
     case MODE_TIME:
     {
       lcd.print("Time: ");
-      padPrintLong((hour + 2) % 24, 2, '0');
+      padPrintLong(hour, 2, '0');
       lcd.write(':');
       padPrintLong(minute, 2, '0');
       lcd.write(':');
@@ -636,11 +624,11 @@ void printMenu() {
       printConsumption();
       break; // ----------------------------------
     case MODE_EXPERT:
-      lcd.print("Total:  ");
-      padPrintFloat2(float(configuration.distanceM)/1000.0, 6, 3);
+      lcd.print("Total: ");
+      padPrintFloat2(float(configuration.distanceM)/1000.0, 3, 3);
       lcd.print("km");
       lcd.setCursor(0, 1); // --------------------
-      padPrintLong((hour + 2) % 24, 2, '0');
+      padPrintLong((hour + 1) % 24, 2, '0');
       lcd.write(':');
       padPrintLong(minute, 2, '0');
       lcd.write(':');
@@ -664,8 +652,8 @@ void printMenu() {
       padPrintFloat2(float(hdop)/100.0, 4, 2);
       break; // ----------------------------------
     case MODE_ACTION:
-      lcd.print(F("Fill tank with "));
-      padPrintFloat2(daily.liters, 2, 1);
+      lcd.print(F("Fill tank with"));
+      padPrintFloat2(daily.liters, 3, 1);
       lcd.write('L');
       lcd.setCursor(0, 1);
       lcd.print(F("Middle: reset trip"));
@@ -679,8 +667,29 @@ void printMenu() {
 }
 #endif
 
+void setBacklight() {
+#ifndef LCD20x4
+  analogWrite (BACKLIGHT_PIN, configuration.backlight);
+#else
+  lcd.setBacklight(configuration.backlight);
+#endif
+}
+
+void lowPowerLoop() {
+  boolean led = false;
+  float vcc = readVcc();
+  while (vcc < 4.92f) {
+    delay(500);
+    vcc = readVcc();
+    digitalWrite(13, led);
+    led = !led;
+  }
+}
+
 void setup() {
   boolean sdEnabled = false;
+  pinMode(13, OUTPUT);
+  lowPowerLoop();
   // set up the LCD's number of columns and rows:
 #ifdef LCD20x4
   lcd.begin(20, 4);
@@ -730,41 +739,55 @@ void setup() {
   readGps();
 
   // load daily data from SD card
-#ifdef USE_FAT16
-  Fat16::dateTimeCallback(dateTime);
-  if (card.init(0, CHIPSELECT_PIN)) {
-    lcd.print("SD card ");
-    lcd.print(card.cardSize());
-    lcd.write('b');
-    delay(500);
-    sdEnabled = Fat16::init(&card);
-  }
-#else
   sdEnabled = SD.begin(CHIPSELECT_PIN);
   SdFile::dateTimeCallback(dateTime);
-#endif
   if (!sdEnabled) {
     lcd.setCursor(0, 1);
     message(F("No SD card"));
   }
   readDaily();
 
-  // set LCD backlight
-#ifndef LCD20x4
-  analogWrite (BACKLIGHT_PIN, configuration.backlight);
-#else
-  lcd.setBacklight(configuration.backlight);
-#endif
+  setBacklight();
 
-  // attach powerdown interrupt to backup
-  attachInterrupt(0, backupIsr, FALLING);
   // start measuring injection
   attachInterrupt(1, injInterrupt, CHANGE);
+  // attach powerdown interrupt to backup
+  attachInterrupt(0, backupIsr, FALLING);
+}
+
+/**
+ * Check if there is enough input voltage for
+ * the thing to work. If no, backup, and stay in a
+ * loop until power goes back on (or die).
+ */
+void checkLowPower() {
+  readVoltage();
+  if (voltage > 4.8f) {
+    return;
+  }
+
+  detachInterrupt(1);
+  Serial.end();
+
+  // Save again
+  backup(false, false);
+  lowPowerLoop();
+
+  setBacklight();
+  lcd.setCursor(0, 3);
+  lcd.print(F("Power is back"));
+  delay(1000);
+
+  Serial.begin(14400);
+  // start measuring injection again
+  attachInterrupt(1, injInterrupt, CHANGE);
+  lcd.clear();
 }
 
 void loop() {
+  //checkLowPower();
+
   unsigned long now = millis();
-  
   readGps();
 
   if (now - lastRefreshTime < 50) {
@@ -779,7 +802,7 @@ void loop() {
     injTakeSample();
     injCompute(&duty, &consPerHour, &rpm);
     if (curSpeed > 0.0) {
-      instantCons = consPerHour * 100.0 / curSpeed;
+      instantCons = (instantCons + consPerHour * 100.0 / curSpeed) / 2.0;
     }
   }
 
@@ -789,17 +812,14 @@ void loop() {
     if (daily.distance > 0.0)
       dailyCons = daily.liters / float(daily.distance) * 100000.0;
   }
-  // Refresh voltage each 16 loops (800ms)
-  if ((refreshStep % 16) == 6) {
-    readVoltage();
-  }
   // React to user key presses each odd loop (100ms), and refresh time each even
   if (refreshStep % 2) {
+    readVoltage();
     reactButtons();
   } else {
-    gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, &fix_age);
-    // Save daily data on SD card every 12.8s
-    if (refreshStep == 244) { // % 16 -> 4
+    gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, NULL);
+    // Save daily data on SD card every 12.8s, only if engine is running
+    if (refreshStep == 244 && rpm > 0) { // % 16 -> 4
 #ifdef LCD20x4
       lcd.setCursor(6, 3);
 #else
