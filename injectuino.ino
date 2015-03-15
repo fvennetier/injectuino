@@ -24,7 +24,7 @@
 #define PMTK_SET_BAUD_9600 "$PMTK251,9600*17"
 TinyGPS gps;
 unsigned long fix_age = TinyGPS::GPS_INVALID_AGE;
-float lat = 0.0, lon = 0.0;
+
 float curSpeed = 0.0;
 char fix_count = 0;
 int year = 1987;
@@ -42,13 +42,8 @@ LiquidCrystal_I2C lcd(0x3F, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 #endif
 byte oldButton = 0;
+byte resetAsked = 0;
 char mode = 0;
-
-// -- SD Card -----------------
-struct daily {
-  unsigned long distance;
-  float liters;
-} daily = {0, 0.0};
 
 // -- Injection ---------------
 int rpm = 0;
@@ -56,7 +51,7 @@ float duty = 0.0;
 float consPerHour = 0.0;
 float instantCons = 0.0;
 float voltage = 0.0;
-float dailyCons = 10.0;
+float tripCons = 10.0;
 
 // -- Timing ------------------
 unsigned long lastRefreshTime = 0;
@@ -64,18 +59,22 @@ byte refreshStep = 0;
 
 // -- Configuration -----------
 int eepromOffset = 0;
-struct MyConfig {
+struct PersistentData {
   // Whole traveled distance, in meters
-  unsigned long distanceM;
+  unsigned long distTot;
+  // Trip distance, in meters
+  unsigned long distTrip;
+  // Trip liters
+  float liters;
   // Last latitude and longitude
   float lastLat, lastLon;
-  // The flow of the injectors, in cm3 per minute
-  float injectorFlow;
   // Number of time EEPROM has been written
   int writeCount;
   // PWM value for backlight
   int backlight;
-} configuration;
+  // Padding bytes to align on 32 bytes (and allow evolutions)
+  char padding[8];
+} pData;
 
 #define message(msg) lcd.setCursor(0, 0);\
   lcd.print(msg);\
@@ -96,9 +95,9 @@ void backup(boolean stopBacklight, boolean writeToSd) {
     digitalWrite(BACKLIGHT_PIN, LOW);
 #endif
   }
-  realOffset += eepromOffset * sizeof(MyConfig);
-  configuration.writeCount += 1;
-  EEPROM_writeAnything(realOffset, configuration);
+  realOffset += eepromOffset * sizeof(PersistentData);
+  pData.writeCount += 1;
+  EEPROM_writeAnything(realOffset, pData);
   if (!stopBacklight) {
     if (writeToSd) {
       File dataFile = SD.open(FILENAME_EEPROM, FILE_WRITE);
@@ -110,9 +109,12 @@ void backup(boolean stopBacklight, boolean writeToSd) {
         dataFile.close();
       }
     }
+    lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print(F("Saved off. "));
+    lcd.print(F("off"));
     lcd.print(eepromOffset);
+    lcd.print(F(" wc"));
+    lcd.print(pData.writeCount);
 
     delay(1000);
   }
@@ -127,14 +129,14 @@ void backupIsr() {
 void load() {
   int realOffset = 1;
   eepromOffset = EEPROM.read(0);
-  realOffset += eepromOffset * sizeof(MyConfig);
-  EEPROM_readAnything(realOffset, configuration);
+  realOffset += eepromOffset * sizeof(pData);
+  EEPROM_readAnything(realOffset, pData);
   // Save configuration at new place now
-  if (configuration.writeCount >= 1000) {
+  if (pData.writeCount >= 25000) {
     cli();
     eepromOffset += 1;
     EEPROM.write(0, eepromOffset);
-    configuration.writeCount = 0;
+    pData.writeCount = 0;
     backup(false, false);
     sei();
   }
@@ -148,7 +150,7 @@ void reactButtons() {
     case BTN_RIGHT:
       switch (mode) {
         case MODE_BACKLIGHT:
-          configuration.backlight += 4;
+          pData.backlight += 4;
           break;
       }
       break;
@@ -163,16 +165,16 @@ void reactButtons() {
     case BTN_LEFT:
       switch (mode) {
         case MODE_BACKLIGHT:
-          configuration.backlight -= 4;
+          pData.backlight -= 4;
           break;
       }
       break;
     case BTN_SELECT:
-      if (mode == MODE_DAILY)
-        newDaily();
+      if (mode == MODE_TRIP)
+        newTrip();
       else {
         backup(false, true);
-        writeDaily(FILENAME_DAILY, false);
+        writeDataToSd(FILENAME_PDATA, false);
       }
       break;
     default:
@@ -182,37 +184,28 @@ void reactButtons() {
 }
 #else
 byte readButtons() {
-  int value = 0;
-  int rawValue = (1023 - analogRead(0)) / 8;
+  byte value = 0;
+  byte rawValue = (byte)(analogRead(0) / 8);
   switch (rawValue) {
-    case 4:
-    case 5:
-    case 6:
+    case 0:
+    case 1:
+    case 2:
       value = BTN_TOP;
       break;
-    case 24:
-    case 25:
-      value = BTN_MIDDLE;
+    case 31:
+    case 32:
+    case 33:
+      value = BTN_MIDDLE1;
       break;
-    case 61:
-    case 62:
-      value = BTN_BOTTOM;
+    case 50:
+    case 51:
+    case 52:
+      value = BTN_MIDDLE2;
       break;
-    case 28:
-    case 29:
-      value = BTN_TOP | BTN_MIDDLE;
-      break;
+    case 63:
     case 64:
     case 65:
-      value = BTN_TOP | BTN_BOTTOM;
-      break;
-    case 68:
-    case 69:
-      value = BTN_BOTTOM | BTN_MIDDLE;
-      break;
-    case 71:
-    case 72:
-      value = BTN_TOP | BTN_MIDDLE | BTN_BOTTOM;
+      value = BTN_BOTTOM;
       break;
   }
   return value;
@@ -226,23 +219,30 @@ void reactButtons() {
       mode = (mode + 1) % MODE_COUNT;
       lcd.clear();
       break;
-    case BTN_MIDDLE:
-      if (mode == MODE_ACTION) {
-        newDaily();
-      } else {
-        configuration.backlight = !configuration.backlight;
-        lcd.setBacklight(configuration.backlight);
-      }
+    case BTN_MIDDLE1:
+      pData.backlight = !pData.backlight;
+      lcd.setBacklight(pData.backlight);
+      break;
+    case BTN_MIDDLE2:
+      backup(false, true);
+      writeDataToSd(FILENAME_PDATA, false);
       break;
     case BTN_BOTTOM:
       if (mode == MODE_ACTION) {
-        backup(false, true);
-        writeDaily(FILENAME_DAILY, false);
+        // ~2s to reach 20
+        if (resetAsked > 20) {
+          newTrip();
+        } else {
+          resetAsked++;
+          // Skip button debounce
+          return;
+        }
       }
       break;
     default:
       break;
   }
+  resetAsked = 0;
   oldButton = button;
 }
 #endif
@@ -317,9 +317,9 @@ void writeLog() {
     dataFile.write('Z');
     dataFile.write(',');
     // Latitude and longitude
-    dataFile.print(lat, 6);
+    dataFile.print(pData.lastLat, 6);
     dataFile.write(',');
-    dataFile.print(lon, 6);
+    dataFile.print(pData.lastLon, 6);
     dataFile.write(',');
     // Current speed
     dataFile.print(int(curSpeed));
@@ -331,13 +331,13 @@ void writeLog() {
     dataFile.print(rpm);
     dataFile.write(',');
     // Current total distance
-    dataFile.print(configuration.distanceM);
+    dataFile.print(pData.distTot);
     dataFile.write('\n');
     dataFile.close();
   }
 }
 
-void writeDaily(const char *fileName, bool append) {
+void writeDataToSd(const char *fileName, bool append) {
   boolean failed = false;
   File dataFile = SD.open(fileName, FILE_WRITE);
   if (dataFile) {
@@ -346,62 +346,45 @@ void writeDaily(const char *fileName, bool append) {
         failed = true;
       }
     }
-    if (dataFile.write((byte*)&daily, sizeof(struct daily)) != sizeof(struct daily)) {
+    if (dataFile.write((byte*)&pData, sizeof(pData)) != sizeof(pData)) {
       failed = true;
     }
-    dataFile.write('\n');
     dataFile.close();
   } else {
     failed = true;
   }
   if (failed) {
-    message(F("writeDaily failed"));
+    message(F("write failed"));
   }
 }
 
-void readDaily() {
-  File dataFile = SD.open(FILENAME_DAILY, FILE_READ);
-  if (dataFile) {
-    int val = 0;
-    byte *ptr = (byte*)&daily;
-    while ((val = dataFile.read()) >= 0 && (ptr - (byte*)&daily) < sizeof(daily)) {
-      *ptr = (byte)val;
-      ptr++;
-    }
-    dataFile.close();
-  } else {
-    message(F("readDaily failed"));
-  }
-  injSetTotalLiters(daily.liters);
+void newTrip() {
+  // Append previous trip data to history file
+  writeDataToSd(FILENAME_PDATA_HIST, true);
+  pData.distTrip = 0;
+  pData.liters = 0.0;
+  tripCons = 10.0;
+  injSetTotalLiters(pData.liters);
 }
 
-void newDaily() {
-  // Write daily data to another file
-  writeDaily(FILENAME_OLDDAILY, true);
-  // Reset the main file
-  SD.remove(FILENAME_DAILY);
-  daily.distance = 0;
-  daily.liters = 0.0;
-  dailyCons = 10.0;
-  injSetTotalLiters(daily.liters);
-}
-
-void loadMe() {
+void loadEepromFromSd() {
   File dataFile = SD.open(FILENAME_LOADME, FILE_READ);
   if (dataFile) {
     int val = 0;
-    byte *ptr = (byte*)&configuration;
-    while ((val = dataFile.read()) >= 0 &&
-        (ptr - (byte*)&configuration) < sizeof(configuration)) {
-      *ptr = (byte)val;
-      ptr++;
+    // Replace the whole content of EEPROM from the content of the file
+    for (int i = 0; i < 1024 && (val = dataFile.read()) >= 0; i++) {
+        EEPROM.write(i, val);
     }
     dataFile.close();
+    // Remove the file so we won't load it again
+    SD.remove(FILENAME_LOADME);
+    message(F("ROM loaded"));
   }
 }
 
 void readGps() {
   int incomingByte = 0;
+  float lat = pData.lastLat, lon = pData.lastLon;
 
   while (Serial.available() > 0) {
     incomingByte = Serial.read();
@@ -410,15 +393,15 @@ void readGps() {
       gps.f_get_position(&lat, &lon, &fix_age);
       curSpeed = gps.f_speed_kmph();
       fix_count = (fix_count + 1) % 20;
-      float delta = TinyGPS::distance_between(configuration.lastLat,
-          configuration.lastLon, lat, lon);
+      float delta = TinyGPS::distance_between(pData.lastLat,
+          pData.lastLon, lat, lon);
       // 100 <= hdop <= 100000 --> delta >= 10m
       if (delta >= float(gps.hdop()) / 10.0 && fix_age < 2000) {
-        configuration.lastLat = lat;
-        configuration.lastLon = lon;
-        if (delta < 15000) {
-          configuration.distanceM += delta;
-          daily.distance += delta;
+        pData.lastLat = lat;
+        pData.lastLon = lon;
+        if (delta < 20000) {
+          pData.distTot += delta;
+          pData.distTrip += delta;
         }
       }
     }
@@ -480,11 +463,11 @@ void printConsumption() {
   if (curSpeed < 15.0) {
     lcd.write(' ');
     padPrintFloat2(consPerHour, 2, 1);
-    lcd.print("L/h    ");
+    lcd.print(F("L/h    "));
   } else {
 #ifdef LCD20x4
     padPrintFloat2(instantCons, 3, 1);
-    lcd.print("L/100km");
+    lcd.print(F("L/100km"));
 #else
     padPrintFloat2(instantCons, 3, 1);
     lcd.print("L100");
@@ -493,11 +476,11 @@ void printConsumption() {
 }
 
 float computeDte() {
-  float dte = (68.0 - daily.liters) * 100.0;
+  float dte = (TANK_VOL - pData.liters) * 100.0;
   if (curSpeed > 15.0)
-    dte /= (dailyCons * 19 + instantCons) / 20.0;
+    dte /= (tripCons * 19 + instantCons) / 20.0;
   else
-    dte /= dailyCons;
+    dte /= tripCons;
   return dte;
 }
 
@@ -513,17 +496,17 @@ void printMenu() {
       lcd.print("%");
       break;
     }
-    case MODE_DAILY:
+    case MODE_TRIP:
     {
-      padPrintLong(daily.distance, 6, ' ');
+      padPrintLong(pData.distTrip, 6, ' ');
       lcd.print("m ");
-      padPrintFloat2(daily.liters, 3, 3);
+      padPrintFloat2(pData.liters, 3, 3);
       lcd.print("L ");
       break;
     }
     case MODE_DISTANCE:
     {
-      padPrintLong((configuration.distanceM)/1000, 6, ' ');
+      padPrintLong((pData.distTot)/1000, 6, ' ');
       lcd.print("km ");
       padPrintFloat2(voltage, 2, 1);
 //      lcd.setCursor(15, 0);
@@ -533,32 +516,32 @@ void printMenu() {
     case MODE_CONS_DTE:
     {
       lcd.print("DTE:");
-      if (dailyCons == 0.0) {
+      if (tripCons == 0.0) {
         lcd.print(" ---");
       } else {
         float dte; = computeDte();
         padPrintLong(long(dte), 4, ' ');
       }
       lcd.print("km ");
-      padPrintFloat2(dailyCons, 2, 1);
+      padPrintFloat2(tripCons, 2, 1);
       lcd.write('L');
       break;
     }
     case MODE_POSITION:
     {
-      padPrintFloat2(abs(lat), 2, 4);
-      lcd.write((lat>0)?'N':'S');
+      padPrintFloat2(abs(pData.lastLat), 2, 4);
+      lcd.write((pData.lastLat>0)?'N':'S');
       lcd.write(' ');
-      padPrintFloat2(abs(lon), 3, 4);
-      lcd.write((lon>0)?'E':'W');
+      padPrintFloat2(abs(pData.lastLon), 3, 4);
+      lcd.write((pData.lastLon>0)?'E':'W');
       break;
     }
     case MODE_BACKLIGHT:
     {
-      configuration.backlight = constrain(configuration.backlight, 0, 255);
-      analogWrite (BACKLIGHT_PIN, configuration.backlight);
+      pData.backlight = constrain(pData.backlight, 0, 255);
+      analogWrite (BACKLIGHT_PIN, pData.backlight);
       lcd.print("Backlight: ");
-      padPrintLong(configuration.backlight, 3, ' ');
+      padPrintLong(pData.backlight, 3, ' ');
       break;
     }
     case MODE_LOGGING:
@@ -607,25 +590,25 @@ void printMenu() {
       lcd.write('V');
       lcd.setCursor(0, 1); // --------------------
       lcd.print("Auto:");
-      if (dailyCons == 0.0) {
+      if (tripCons == 0.0) {
         lcd.print(" ---");
       } else {
         dte = computeDte();
         padPrintLong(long(dte), 4, ' ');
       }
       lcd.print("km");
-      padPrintFloat2(TANK_VOL - daily.liters, 3, 3);
+      padPrintFloat2(TANK_VOL - pData.liters, 3, 3);
       lcd.write('L');
       lcd.setCursor(0, 2); // --------------------
-      padPrintFloat2(float(daily.distance)/1000, 4, 1);
+      padPrintFloat2(float(pData.distTrip)/1000, 4, 1);
       lcd.print("km");
-      padPrintFloat2(dailyCons, 3, 1);
-      lcd.print("L/100km");
+      padPrintFloat2(tripCons, 3, 1);
+      lcd.print(F("L/100km"));
       printConsumption();
       break; // ----------------------------------
     case MODE_EXPERT:
-      lcd.print("Total: ");
-      padPrintFloat2(float(configuration.distanceM)/1000.0, 3, 3);
+      lcd.print(F("Total: "));
+      padPrintFloat2(float(pData.distTot)/1000.0, 3, 3);
       lcd.print("km");
       lcd.setCursor(0, 1); // --------------------
       padPrintLong((hour + 1) % 24, 2, '0');
@@ -641,11 +624,11 @@ void printMenu() {
       lcd.write('/');
       padPrintLong(year, 4, '0');
       lcd.setCursor(0, 2); // --------------------
-      padPrintFloat2(abs(lat), 2, 5);
-      lcd.write((lat>0)?'N':'S');
+      padPrintFloat2(abs(pData.lastLat), 2, 5);
+      lcd.write((pData.lastLat>0)?'N':'S');
       lcd.write(' ');
-      padPrintFloat2(abs(lon), 3, 5);
-      lcd.write((lon>0)?'E':'W');
+      padPrintFloat2(abs(pData.lastLon), 3, 5);
+      lcd.write((pData.lastLon>0)?'E':'W');
       lcd.setCursor(7, 3);
       lcd.print(F("HDOP:"));
       hdop = min(gps.hdop(), 999999);
@@ -653,12 +636,12 @@ void printMenu() {
       break; // ----------------------------------
     case MODE_ACTION:
       lcd.print(F("Fill tank with"));
-      padPrintFloat2(daily.liters, 3, 1);
+      padPrintFloat2(pData.liters, 3, 1);
       lcd.write('L');
       lcd.setCursor(0, 1);
-      lcd.print(F("Middle: reset trip"));
+      lcd.print(F("Btn3: save now"));
       lcd.setCursor(0, 2);
-      lcd.print(F("Bottom: save now"));
+      lcd.print(F("Btn4: reset trip"));
       lcd.setCursor(8, 3);
       lcd.print(F("Free RAM:"));
       lcd.print(FreeRam());
@@ -669,9 +652,9 @@ void printMenu() {
 
 void setBacklight() {
 #ifndef LCD20x4
-  analogWrite (BACKLIGHT_PIN, configuration.backlight);
+  analogWrite (BACKLIGHT_PIN, pData.backlight);
 #else
-  lcd.setBacklight(configuration.backlight);
+  lcd.setBacklight(pData.backlight);
 #endif
 }
 
@@ -706,20 +689,28 @@ void setup() {
   pinMode(VOLTAGE_PIN, INPUT);
   pinMode(POWER_PIN, INPUT);
 
+  sdEnabled = SD.begin(CHIPSELECT_PIN);
+  SdFile::dateTimeCallback(dateTime);
+  if (!sdEnabled) {
+    lcd.setCursor(0, 1);
+    message(F("No SD card"));
+  } else {
+    // eventually overwrite EEPROM with data from SD card
+    loadEepromFromSd();
+  }
+
   // load configuration from EEPROM
   load();
 
   // initialize with safe defaults
-  if (configuration.lastLat == 0.0) {
-    configuration.lastLat = 50.6065753;
-    configuration.lastLon = 3.0758584;
-    configuration.distanceM = 0;
-    /* 216-260 per injector, 4 injectors. */
-    configuration.injectorFlow = 1040.0;
-    configuration.backlight = 80;
+  if (pData.lastLat == 0.0) {
+    pData.lastLat = 50.6065753;
+    pData.lastLon = 3.0758584;
+    pData.distTot = 0;
+    pData.distTrip = 0;
+    pData.liters = 0.0;
+    pData.backlight = 80;
   }
-  lat = configuration.lastLat;
-  lon = configuration.lastLon;
 
   // start listening to GPS
   /*
@@ -738,18 +729,10 @@ void setup() {
   // If we are lucky enough, we can get a time fix now
   readGps();
 
-  // load daily data from SD card
-  sdEnabled = SD.begin(CHIPSELECT_PIN);
-  SdFile::dateTimeCallback(dateTime);
-  if (!sdEnabled) {
-    lcd.setCursor(0, 1);
-    message(F("No SD card"));
-  }
-  readDaily();
-
   setBacklight();
 
   // start measuring injection
+  injSetTotalLiters(pData.liters);
   attachInterrupt(1, injInterrupt, CHANGE);
   // attach powerdown interrupt to backup
   attachInterrupt(0, backupIsr, FALLING);
@@ -774,9 +757,7 @@ void checkLowPower() {
   lowPowerLoop();
 
   setBacklight();
-  lcd.setCursor(0, 3);
-  lcd.print(F("Power is back"));
-  delay(1000);
+  message(F("Power OK"));
 
   Serial.begin(14400);
   // start measuring injection again
@@ -808,9 +789,9 @@ void loop() {
 
   // Refresh consumption every 8 loops (400ms), not at the same time as injection
   if ((refreshStep % 8) == 2) { // %16 -> 2, 10
-    injGetTotalLiters(&(daily.liters));
-    if (daily.distance > 0.0)
-      dailyCons = daily.liters / float(daily.distance) * 100000.0;
+    injGetTotalLiters(&(pData.liters));
+    if (pData.distTrip > 0.0)
+      tripCons = pData.liters / float(pData.distTrip) * 100000.0;
   }
   // React to user key presses each odd loop (100ms), and refresh time each even
   if (refreshStep % 2) {
@@ -818,7 +799,7 @@ void loop() {
     reactButtons();
   } else {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, NULL);
-    // Save daily data on SD card every 12.8s, only if engine is running
+    // Save trip data on SD card every 12.8s, only if engine is running
     if (refreshStep == 244 && rpm > 0) { // % 16 -> 4
 #ifdef LCD20x4
       lcd.setCursor(6, 3);
@@ -826,7 +807,7 @@ void loop() {
       lcd.setCursor(6, 1);
 #endif
       lcd.write('-');
-      writeDaily(FILENAME_DAILY, false);
+      writeDataToSd(FILENAME_PDATA, false);
     } else if (refreshStep == 126) { // %16 -> 14
       writeLog();
     }

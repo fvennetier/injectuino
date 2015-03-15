@@ -2,9 +2,9 @@
 #define INJ_OFFSET_MICROS 1000
 #define INJ_CC_BY_MIN 1000.0
 #define FILENAME_LOG "logging.txt"
-#define FILENAME_DAILY "trip.dat"
-#define FILENAME_OLDDAILY "history.dat"
-#define FILENAME_EEPROM "eeprom.dat"
+#define FILENAME_PDATA "persist.dat"
+#define FILENAME_PDATA_HIST "history.dat"
+#define FILENAME_EEPROM "backup.rom"
 #define FILENAME_LOADME "loadme.rom"
 
 #define LCD20x4
@@ -17,9 +17,10 @@
 #define VOLTAGE_PIN A1
 
 #ifdef LCD20x4
-# define BTN_TOP    1
-# define BTN_MIDDLE 2
-# define BTN_BOTTOM 4
+# define BTN_TOP     1
+# define BTN_MIDDLE1 2
+# define BTN_MIDDLE2 4
+# define BTN_BOTTOM  8
 #else
 # define BTN_RIGHT   1
 # define BTN_UP      2
@@ -35,7 +36,7 @@
 # define MODE_COUNT  3
 #else
 # define MODE_CONS_DTE    0
-# define MODE_DAILY       1
+# define MODE_TRIP        1
 # define MODE_RPM_DUTY    2
 # define MODE_DISTANCE    3
 # define MODE_TIME        4
