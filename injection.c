@@ -13,8 +13,8 @@ static volatile uint32_t lastOpen;
 static volatile uint16_t cycle4 = 0xFFFF;
 
 static byte sampleId = 0;
-static int rpmArr[INJ_MEAN_SAMPLES] = {0};
-static float dutyArr[INJ_MEAN_SAMPLES] = {0.0};
+static short rpmArr[INJ_MEAN_SAMPLES] = {0};
+static short dutyArr[INJ_MEAN_SAMPLES] = {0};
 
 void injInterrupt(void)
 {
@@ -57,18 +57,18 @@ void injTakeSample(void)
   lastSampleTime = curTime;
 
   if (timeGap && timeGap < 5000 && injGap > 0) {
-    dutyArr[sampleId] = 1.024 * ((float)injGap) / ((float)timeGap);
+    dutyArr[sampleId] = (1024 * injGap) / timeGap;
     rpmArr[sampleId] = min(15000000UL / cycle4, 9999);
   } else {
-    dutyArr[sampleId] = 0.0;
+    dutyArr[sampleId] = 0;
     rpmArr[sampleId] = 0;
   }
   sampleId = (sampleId + 1) % INJ_MEAN_SAMPLES;
 }
 
-void injCompute(float *dutyCycle, float *consLiterPerHour, int *rpm)
+void injCompute(short *dutyCycle, short *consLiterPerHour, short *rpm)
 {
-  float dutySum = 0;
+  long dutySum = 0;
   long rpmSum = 0;
   int i;
 
@@ -76,11 +76,11 @@ void injCompute(float *dutyCycle, float *consLiterPerHour, int *rpm)
     dutySum += dutyArr[i];
     rpmSum += rpmArr[i];
   }
-  *dutyCycle = dutySum / ((float)INJ_MEAN_SAMPLES);
-  *dutyCycle = min(100.0, *dutyCycle);
+  *dutyCycle = dutySum / INJ_MEAN_SAMPLES;
+  *dutyCycle = min(1000, *dutyCycle);
   *rpm = rpmSum / INJ_MEAN_SAMPLES;
   // cc/min * 0.06 = L/h
-  *consLiterPerHour = INJ_CC_BY_MIN * 0.06 * *dutyCycle;
+  *consLiterPerHour = (short)((INJ_CC_BY_MIN * *dutyCycle) / 1666L);
 }
 
 void injGetTotalLiters(float *totalLiters)

@@ -10,12 +10,12 @@
 #endif
 
 #ifndef INJ_CC_BY_MIN
-# define INJ_CC_BY_MIN 1040.0
+# define INJ_CC_BY_MIN 1040L
 #endif
 
 void injInterrupt(void);
 void injTakeSample(void);
-void injCompute(float *dutyCycle, float *consLiterPerHour, int *rpm);
+void injCompute(short *dutyCycle, short *consLiterPerHour, short *rpm);
 void injGetTotalLiters(float *totalLiters);
 void injSetTotalLiters(float totalLiters);
 

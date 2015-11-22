@@ -1,13 +1,15 @@
-#define INJ_MEAN_SAMPLES 4
+#define INJ_MEAN_SAMPLES 2
 #define INJ_OFFSET_MICROS 1000
-#define INJ_CC_BY_MIN 1000.0
+#define INJ_CC_BY_MIN 1040L
+#define SERIAL_SPEED 19200
+#define SERIAL_SET_SPEED "$PMTK251,19200*22"
 #define FILENAME_LOG "logging.txt"
 #define FILENAME_PDATA "persist.dat"
 #define FILENAME_PDATA_HIST "history.dat"
 #define FILENAME_EEPROM "backup.rom"
 #define FILENAME_LOADME "loadme.rom"
 
-#define LCD20x4
+#define LCD20x4 1
 
 #define BACKLIGHT_PIN 10
 #define CHIPSELECT_PIN 8
@@ -33,7 +35,8 @@
 # define MODE_NORMAL 0
 # define MODE_EXPERT 1
 # define MODE_ACTION 2
-# define MODE_COUNT  3
+# define MODE_STATS  3
+# define MODE_COUNT  4
 #else
 # define MODE_CONS_DTE    0
 # define MODE_TRIP        1
@@ -48,5 +51,5 @@
 
 #define TANK_VOL 68.0
 
-//#define USE_FAT16 1
-//#define SOFTWARE_SPI 1
+#define SERIAL_TX_BUFFER_SIZE 64
+#define SERIAL_RX_BUFFER_SIZE 128
