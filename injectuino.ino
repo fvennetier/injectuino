@@ -17,7 +17,6 @@
 #include "injection.c"
 
 #include <SPI.h>
-#include <SD.h>
 
 // -- GPS ---------------------
 #define PMTK_API_SET_FIX_CTL_2HZ  "$PMTK300,500,0,0,0,0*28"
@@ -89,7 +88,6 @@ byte injRefreshMod = 8;
 byte refreshStep = 0;
 
 // -- Configuration -----------
-boolean sdEnabled = false;
 byte eepromOffset = 0;
 struct PersistentData {
   // Whole traveled distance, in meters
@@ -113,23 +111,13 @@ struct PersistentData {
   delay(1000);
 
 /* Save configuration to EEPROM */
-void backup(boolean noSd, boolean writeToSd) {
+void backup(boolean noDisplay) {
   unsigned long start, end;
   int realOffset = 1;
   realOffset += eepromOffset * sizeof(PersistentData);
   pData.writeCount += 1;
   EEPROM_writeAnything(realOffset, pData);
-  if (!noSd) {
-    if (writeToSd) {
-      File dataFile = SD.open(FILENAME_EEPROM, FILE_WRITE);
-      if (dataFile) {
-        dataFile.seek(0);
-        for (int i = 0; i < 1024; i++) {
-          dataFile.write((byte)EEPROM.read(i));
-        }
-        dataFile.close();
-      }
-    }
+  if (!noDisplay) {
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print(F("off"));
@@ -143,7 +131,7 @@ void backup(boolean noSd, boolean writeToSd) {
 
 /* ISR called when pin 2 falls down */
 void backupIsr() {
-  backup(true, false);
+  backup(true);
 }
 
 /* Load configuration from EEPROM */
@@ -158,7 +146,7 @@ void load() {
     eepromOffset += 1;
     EEPROM.write(0, eepromOffset);
     pData.writeCount = 0;
-    backup(false, false);
+    backup(false);
     sei();
   }
 }
@@ -194,8 +182,7 @@ void reactButtons() {
       if (mode == MODE_TRIP)
         newTrip();
       else {
-        backup(false, true);
-        writeDataToSd(FILENAME_PDATA, false);
+        backup(false);
       }
       break;
     default:
@@ -245,8 +232,7 @@ void reactButtons() {
       lcd.setBacklight(pData.backlight);
       break;
     case BTN_MIDDLE2:
-      backup(false, true);
-      writeDataToSd(FILENAME_PDATA, false);
+      backup(false);
       break;
     case BTN_BOTTOM:
       if (mode == MODE_ACTION) {
@@ -259,7 +245,7 @@ void reactButtons() {
           return;
         }
       } else {
-        injRefreshMod = 1 + (injRefreshMod % 32);
+        injRefreshMod = 2 + (injRefreshMod % 32);
       }
       break;
     default:
@@ -269,13 +255,6 @@ void reactButtons() {
   oldButton = button;
 }
 #endif
-
-void dateTime(uint16_t* date, uint16_t* time) {
-  // return date using FAT_DATE macro to format fields
-  *date = FAT_DATE(year, month, day);
-  // return time using FAT_TIME macro to format fields
-  *time = FAT_TIME(hour, minute, second);
-}
 
 void readVoltage() {
   // val / resolution * vref * divisor
@@ -310,6 +289,8 @@ float readVcc() {
   return 1125.3 / float(result); // Calculate Vcc (in V); 1125.3 = 1.1*1023
 }
 
+// This code may be used to log to something else (bluetooth?)
+/*
 void writeLog() {
   if (year <= 2000) {
     return;
@@ -360,50 +341,13 @@ void writeLog() {
     dataFile.close();
   }
 }
-
-void writeDataToSd(const char *fileName, bool append) {
-  boolean failed = false;
-  File dataFile = SD.open(fileName, FILE_WRITE);
-  if (dataFile) {
-    if (!append) {
-      if (!dataFile.seek(0)) {
-        failed = true;
-      }
-    }
-    if (dataFile.write((byte*)&pData, sizeof(pData)) != sizeof(pData)) {
-      failed = true;
-    }
-    dataFile.close();
-  } else {
-    failed = true;
-  }
-  if (failed) {
-    message(F("write failed"));
-  }
-}
+*/
 
 void newTrip() {
-  // Append previous trip data to history file
-  writeDataToSd(FILENAME_PDATA_HIST, true);
   pData.distTrip = 0;
   pData.liters = 0.0;
   tripCons = 10.0;
   injSetTotalLiters(pData.liters);
-}
-
-void loadEepromFromSd() {
-  File dataFile = SD.open(FILENAME_LOADME, FILE_READ);
-  if (dataFile) {
-    int val = 0;
-    // Replace the whole content of EEPROM from the content of the file
-    for (int i = 0; i < 1024 && (val = dataFile.read()) >= 0; i++) {
-        EEPROM.write(i, val);
-    }
-    dataFile.close();
-    // Remove the file so we won't load it again
-    SD.remove(FILENAME_LOADME);
-    message(F("ROM loaded"));
-  }
 }
 
 void readGps() {
@@ -420,11 +364,12 @@ void readGps() {
           pData.lastLon, lat, lon);
       // 100 <= hdop <= 100000 --> delta >= 10m
       if (delta >= float(gps.hdop()) / 10.0 && fix_age < 2000) {
+        unsigned short uDelta = (unsigned short)delta;
         pData.lastLat = lat;
         pData.lastLon = lon;
-        if (delta < 20000) {
-          pData.distTot += delta;
-          pData.distTrip += delta;
+        if (uDelta < 20000u) {
+          pData.distTot += uDelta;
+          pData.distTrip += uDelta;
         }
       }
     }
@@ -641,7 +586,7 @@ void printMenu() {
       padPrintFloat2(TANK_VOL - pData.liters, 3, 3);
       lcd.write('L');
       lcd.setCursor(0, 2); // --------------------
-      padPrintFloat2(float(pData.distTrip)/1000, 4, 2);
+      padPrintFloat2(float(pData.distTrip)/1000.0, 4, 2);
       lcd.print("km   ");
       padPrintFloat2(tripCons, 3, 1);
       lcd.print(F("L\x01\x02"));
@@ -683,9 +628,6 @@ void printMenu() {
       lcd.print(F("Btn3: save now"));
       lcd.setCursor(0, 2);
       lcd.print(F("Btn4: reset trip"));
-      lcd.setCursor(8, 3);
-      lcd.print(F("Free RAM:"));
-      lcd.print(FreeRam());
       break;
     case MODE_STATS:
       lcd.print(F("Max:"));
@@ -696,8 +638,7 @@ void printMenu() {
       lcd.setCursor(0, 1);
       lcd.print(F("Fix: "));
       padPrintLong(fix_age, 4, ' ');
-      lcd.print(F("ms SD: "));
-      lcd.print(sdEnabled);
+      lcd.print(F("ms"));
       lcd.setCursor(0, 2);
       lcd.print(F("Max:"));
       padPrintFloat2(maxSpeed, 3, 1);
@@ -747,15 +688,6 @@ void setup() {
   pinMode(VOLTAGE_PIN, INPUT);
   pinMode(POWER_PIN, INPUT);
 
-  sdEnabled = SD.begin(CHIPSELECT_PIN);
-  SdFile::dateTimeCallback(dateTime);
-  if (!sdEnabled) {
-    message(F("No SD card"));
-  } else {
-    // eventually overwrite EEPROM with data from SD card
-    loadEepromFromSd();
-  }
-
   // load configuration from EEPROM
   load();
 
@@ -803,7 +735,7 @@ void checkLowPower() {
   Serial.end();
 
   // Save again
-  backup(false, false);
+  backup(false);
   lowPowerLoop();
 
   setBacklight();
@@ -843,7 +775,7 @@ void loop() {
   // Refresh consumption every 8 loops (400ms), not at the same time as injection
   if ((refreshStep % 8) == 2) { // %16 -> 2, 10
     injGetTotalLiters(&(pData.liters));
-    if (pData.distTrip > 0.0)
+    if (pData.distTrip > 0)
       tripCons = pData.liters / float(pData.distTrip) * 100000.0;
   }
   // React to user key presses each odd loop (100ms), and refresh time each even
@@ -867,13 +799,9 @@ void loop() {
     }
   } else {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, NULL);
-    if (sdEnabled) {
-      // Save trip data on SD card every 12.8s, only if engine is running
-      if (refreshStep == 244 && rpm > 0) { // % 16 -> 4
-        writeDataToSd(FILENAME_PDATA, false);
-      } else if (refreshStep == 126) { // %16 -> 14
-        writeLog();
-      }
+    // Write log entry every 12.8s
+    if (refreshStep == 126) { // %16 -> 14
+      //writeLog();
     }
   }
   printMenu();

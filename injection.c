@@ -10,6 +10,7 @@ static unsigned long lastInjMillis = 0;
 static unsigned long lastSampleTime = 0;
 static volatile uint32_t injMillis = 0, injMicros = 0;
 static volatile uint32_t lastOpen;
+// Time between two cycles divided by 4, in microseconds
 static volatile uint16_t cycle4 = 0xFFFF;
 
 static byte sampleId = 0;
@@ -58,6 +59,7 @@ void injTakeSample(void)
 
   if (timeGap && timeGap < 5000 && injGap > 0) {
     dutyArr[sampleId] = (1024 * injGap) / timeGap;
+    // (60 * 1000000 / 4) / (cycles / 4)
     rpmArr[sampleId] = min(15000000UL / cycle4, 9999);
   } else {
     dutyArr[sampleId] = 0;
