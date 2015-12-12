@@ -5,6 +5,10 @@
 # define INJ_MEAN_SAMPLES 4
 #endif
 
+#ifndef RPM_MEAN_SAMPLES
+# define RPM_MEAN_SAMPLES 4
+#endif
+
 #ifndef INJ_READ_PIN
 # define INJ_READ_PIN 3
 #endif
@@ -15,7 +19,8 @@
 
 void injInterrupt(void);
 void injTakeSample(void);
-void injCompute(short *dutyCycle, short *consLiterPerHour, short *rpm);
+void injCompute(short *dutyCycle, short *consLiterPerHour, byte samples);
+void injGetRpm(short *rpm);
 void injGetTotalLiters(float *totalLiters);
 void injSetTotalLiters(float totalLiters);
 

@@ -84,7 +84,7 @@ float tripCons = 10.0;
 
 // -- Timing ------------------
 unsigned long lastRefreshTime = 0;
-byte injRefreshMod = 8;
+byte injRefreshMod = 4;
 byte refreshStep = 0;
 
 // -- Configuration -----------
@@ -245,7 +245,7 @@ void reactButtons() {
           return;
         }
       } else {
-        injRefreshMod = 2 + (injRefreshMod % 32);
+        injRefreshMod = 2 + (injRefreshMod % INJ_MEAN_SAMPLES);
       }
       break;
     default:
@@ -638,12 +638,12 @@ void printMenu() {
       lcd.setCursor(0, 1);
       lcd.print(F("Fix: "));
       padPrintLong(fix_age, 4, ' ');
-      lcd.print(F("ms"));
+      lcd.print(F("ms mean: "));
+      lcd.print(injRefreshMod);
       lcd.setCursor(0, 2);
       lcd.print(F("Max:"));
       padPrintFloat2(maxSpeed, 3, 1);
-      lcd.print(F("kmh refr: "));
-      lcd.print(injRefreshMod);
+      lcd.print(F("kmh"));
       break;
   }
 }
@@ -764,16 +764,21 @@ void loop() {
   refreshStep++;
 
   // Probe injection each 4 loops (200ms)
-  if ((refreshStep % injRefreshMod) == 0) { // %16 -> 0, 4, 8, 12
+  if ((refreshStep % 4) == 0) { // %16 -> 0, 4, 8, 12
     injTakeSample();
-    injCompute(&duty, &consPerHour, &rpm);
+    injGetRpm(&rpm);
+  }
+
+  // Refresh instant consumption
+  if ((refreshStep % injRefreshMod) == 0) {
+    injCompute(&duty, &consPerHour, injRefreshMod);
     if (curSpeed > 0.0) {
       instantCons = (instantCons + consPerHour * 10.0 / curSpeed) / 2.0;
     }
   }
 
-  // Refresh consumption every 8 loops (400ms), not at the same time as injection
-  if ((refreshStep % 8) == 2) { // %16 -> 2, 10
+  // Refresh consumption every 32 loops (1.6s), not at the same time as injection
+  if ((refreshStep % 32) == 2) { // %16 -> 2, 10
     injGetTotalLiters(&(pData.liters));
     if (pData.distTrip > 0)
       tripCons = pData.liters / float(pData.distTrip) * 100000.0;
