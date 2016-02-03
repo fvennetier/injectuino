@@ -84,7 +84,7 @@ float tripCons = 10.0;
 
 // -- Timing ------------------
 unsigned long lastRefreshTime = 0;
-byte injRefreshMod = 4;
+byte injRefreshMod = 8;
 byte refreshStep = 0;
 
 // -- Configuration -----------
@@ -259,7 +259,7 @@ void reactButtons() {
 void readVoltage() {
   // val / resolution * vref * divisor
   //  x  /    1023    *  5   *  3
-  float _voltage = analogRead(VOLTAGE_PIN) * 0.0146627566 + 0.7;
+  float _voltage = analogRead(VOLTAGE_PIN) * 0.0146627566 + VOLTAGE_OFFSET;
   voltage = (short)(_voltage * 10.0);
 }
 
@@ -765,7 +765,7 @@ void loop() {
 
   // Probe injection each 4 loops (200ms)
   if ((refreshStep % 4) == 0) { // %16 -> 0, 4, 8, 12
-    injTakeSample();
+    injTakeSample(voltage);
     injGetRpm(&rpm);
   }
 
@@ -798,7 +798,7 @@ void loop() {
     case 7:
       if (rpm > maxRpm)
         maxRpm = rpm;
-      if (duty > maxDuty)
+      if (duty > maxDuty && duty < 1000)
         maxDuty = duty;
       break;
     }

@@ -18,7 +18,7 @@
 #endif
 
 void injInterrupt(void);
-void injTakeSample(void);
+void injTakeSample(short voltage10);
 void injCompute(short *dutyCycle, short *consLiterPerHour, byte samples);
 void injGetRpm(short *rpm);
 void injGetTotalLiters(float *totalLiters);
