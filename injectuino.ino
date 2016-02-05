@@ -78,9 +78,9 @@ short maxRpm = 0;
 short duty = 0;
 short maxDuty = 0;
 short consPerHour = 0;
-float instantCons = 0.0;
+short instantCons = 0;
 short voltage = 0;
-float tripCons = 10.0;
+short tripCons = 100;
 
 // -- Timing ------------------
 unsigned long lastRefreshTime = 0;
@@ -346,7 +346,7 @@ void writeLog() {
 void newTrip() {
   pData.distTrip = 0;
   pData.liters = 0.0;
-  tripCons = 10.0;
+  tripCons = 100;
   injSetTotalLiters(pData.liters);
 }
 
@@ -452,21 +452,21 @@ void printConsumption() {
     lcd.print(F("L/h"));
   } else {
 #ifdef LCD20x4
-    padPrintFloat2(instantCons, 3, 1);
+    padPrintFloatShort(instantCons, 3, 10);
     lcd.print(F("L\x01\x02"));
 #else
-    padPrintFloat2(instantCons, 3, 1);
+    padPrintFloatShort(instantCons, 3, 10);
     lcd.print("L100");
 #endif
   }
 }
 
 float computeDte() {
-  float dte = (TANK_VOL - pData.liters) * 100.0;
+  float dte = (TANK_VOL - pData.liters) * 1000.0;
   if (curSpeed > 15.0)
     dte /= (tripCons * 19 + instantCons) / 20.0;
   else
-    dte /= tripCons;
+    dte /= float(tripCons);
   return dte;
 }
 
@@ -502,14 +502,14 @@ void printMenu() {
     case MODE_CONS_DTE:
     {
       lcd.print("DTE:");
-      if (tripCons == 0.0) {
+      if (tripCons == 0) {
         lcd.print(" ---");
       } else {
         float dte; = computeDte();
         padPrintLong(long(dte), 4, ' ');
       }
       lcd.print("km ");
-      padPrintFloat2(tripCons, 2, 1);
+      padPrintFloatShort(tripCons, 2, 10);
       lcd.write('L');
       break;
     }
@@ -576,7 +576,7 @@ void printMenu() {
       lcd.write('V');
       lcd.setCursor(0, 1); // --------------------
       lcd.print("Auto:");
-      if (tripCons == 0.0) {
+      if (tripCons == 0) {
         lcd.print(" ----");
       } else {
         dte = computeDte();
@@ -588,7 +588,7 @@ void printMenu() {
       lcd.setCursor(0, 2); // --------------------
       padPrintFloat2(float(pData.distTrip)/1000.0, 4, 2);
       lcd.print("km   ");
-      padPrintFloat2(tripCons, 3, 1);
+      padPrintFloatShort(tripCons, 3, 10);
       lcd.print(F("L\x01\x02"));
       printConsumption();
       break; // ----------------------------------
@@ -773,7 +773,7 @@ void loop() {
   if ((refreshStep % injRefreshMod) == 0) {
     injCompute(&duty, &consPerHour, injRefreshMod);
     if (curSpeed > 0.0) {
-      instantCons = (instantCons + consPerHour * 10.0 / curSpeed) / 2.0;
+      instantCons = (instantCons + consPerHour * 100 / curSpeed) / 2;
     }
   }
 
@@ -781,7 +781,7 @@ void loop() {
   if ((refreshStep % 32) == 2) { // %16 -> 2, 10
     injGetTotalLiters(&(pData.liters));
     if (pData.distTrip > 0)
-      tripCons = pData.liters / float(pData.distTrip) * 100000.0;
+      tripCons = short(pData.liters / float(pData.distTrip) * 1000000.0);
   }
   // React to user key presses each odd loop (100ms), and refresh time each even
   if (refreshStep % 2) {

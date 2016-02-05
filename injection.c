@@ -71,19 +71,19 @@ void injTakeSample(short voltage10)
   sampleId++;
 }
 
-void injCompute(short *dutyCycle, short *consLiterPerHour, byte samples)
+void injCompute(short *dutyCycle10, short *consLiterPerHour10, byte samples)
 {
   long dutySum = 0;
   byte i;
 
   for (i = 0; i < samples; i++) {
-    dutySum += dutyArr[(sampleId - i) % INJ_MEAN_SAMPLES];
+    dutySum += dutyArr[(sampleId - i) % (byte)INJ_MEAN_SAMPLES];
   }
-  *dutyCycle = dutySum / samples;
-  *dutyCycle = min(1000, *dutyCycle);
+  *dutyCycle10 = dutySum / samples;
+  *dutyCycle10 = min(1000, *dutyCycle10);
 
   // cc/min * 0.06 = L/h
-  *consLiterPerHour = (short)((INJ_CC_BY_MIN * *dutyCycle) / 1666L);
+  *consLiterPerHour10 = (short)((INJ_CC_BY_MIN * *dutyCycle10) / 1666L);
 }
 
 void injGetRpm(short *rpm)
