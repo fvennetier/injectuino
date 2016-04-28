@@ -1,9 +1,10 @@
 #define INJ_MEAN_SAMPLES 16
 #define INJ_OFFSET_MICROS 1000
-#define VOLTAGE_OFFSET 1.6
+#define VOLTAGE_OFFSET 1.5
 #define INJ_CC_BY_MIN 1040L
 #define SERIAL_SPEED 19200
 #define SERIAL_SET_SPEED "$PMTK251,19200*22"
+
 #define FILENAME_LOG "logging.txt"
 #define FILENAME_PDATA "persist.dat"
 #define FILENAME_PDATA_HIST "history.dat"

@@ -12,7 +12,7 @@ static volatile uint32_t injMillis = 0, injMicros = 0;
 static volatile uint32_t lastOpen;
 // Time between two cycles divided by 4, in microseconds
 static volatile uint16_t cycle4 = 0xFFFF;
-static volatile char voltageDiff = 0;
+static volatile signed char voltageDiff = 0;
 
 static byte sampleId = 0;
 static short rpmArr[RPM_MEAN_SAMPLES] = {0};
@@ -43,7 +43,7 @@ void injTakeSample(short voltage10)
   unsigned long curInjMillis;
   unsigned long curTime;
 
-  voltageDiff = 138 - voltage10;
+  voltageDiff = 135 - voltage10;
 
   cli();
   curTime = millis();
