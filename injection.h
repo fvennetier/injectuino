@@ -17,6 +17,10 @@
 # define INJ_CC_BY_MIN 1040L
 #endif
 
+#ifndef INJ_OFFSET_MICROS
+# define INJ_OFFSET_MICROS 750L
+#endif
+
 void injInterrupt(void);
 void injTakeSample(short voltage10);
 void injCompute(short *dutyCycle, short *consLiterPerHour, byte samples);

@@ -9,10 +9,12 @@
 static unsigned long lastInjMillis = 0;
 static unsigned long lastSampleTime = 0;
 static volatile uint32_t injMillis = 0, injMicros = 0;
+static volatile long rawDiffMicros = 0;
 static volatile uint32_t lastOpen;
 // Time between two cycles divided by 4, in microseconds
 static volatile uint16_t cycle4 = 0xFFFF;
 static volatile signed char voltageDiff = 0;
+
 
 static byte sampleId = 0;
 static short rpmArr[RPM_MEAN_SAMPLES] = {0};
@@ -30,9 +32,10 @@ void injInterrupt(void)
       injMicros &= 1023UL;
     }
   } else {
+    rawDiffMicros = m - lastOpen;
     // Injector closing, add 100µs per volt to offset
-    long diff = m - lastOpen - INJ_OFFSET_MICROS - ((short)voltageDiff)*10;
-    if (diff > 0 && diff < 100000L) {
+    long diff = rawDiffMicros - INJ_OFFSET_MICROS - ((long)voltageDiff)*10L;
+    if (diff > 0L && diff < 100000L) {
       injMicros += diff;
     }
   }
@@ -43,7 +46,7 @@ void injTakeSample(short voltage10)
   unsigned long curInjMillis;
   unsigned long curTime;
 
-  voltageDiff = 135 - voltage10;
+  voltageDiff = (signed char)(140 - voltage10);
 
   cli();
   curTime = millis();
@@ -60,7 +63,7 @@ void injTakeSample(short voltage10)
   lastInjMillis = curInjMillis;
   lastSampleTime = curTime;
 
-  if (timeGap && timeGap < 5000 && injGap > 0) {
+  if (timeGap && timeGap < 5000uL && injGap > 0uL) {
     dutyArr[sampleId % INJ_MEAN_SAMPLES] = (1024 * injGap) / timeGap;
     // (60 * 1000000 / 4) / (cycles / 4)
     rpmArr[sampleId % RPM_MEAN_SAMPLES] = min(15000000UL / cycle4, 9999);
@@ -73,11 +76,13 @@ void injTakeSample(short voltage10)
 
 void injCompute(short *dutyCycle10, short *consLiterPerHour10, byte samples)
 {
-  long dutySum = 0;
+  unsigned long dutySum = 0;
   byte i;
+  short id;
 
   for (i = 0; i < samples; i++) {
-    dutySum += dutyArr[(sampleId - i) % (byte)INJ_MEAN_SAMPLES];
+    id = (sampleId + INJ_MEAN_SAMPLES - i) % INJ_MEAN_SAMPLES;
+    dutySum += dutyArr[id];
   }
   *dutyCycle10 = dutySum / samples;
   *dutyCycle10 = min(1000, *dutyCycle10);

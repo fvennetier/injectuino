@@ -636,9 +636,9 @@ void printMenu() {
       padPrintFloatShort(maxDuty, 3, 10);
       lcd.write('%');
       lcd.setCursor(0, 1);
-      lcd.print(F("Fix: "));
-      padPrintLong(fix_age, 4, ' ');
-      lcd.print(F("ms mean: "));
+      lcd.print(F("Inj:"));
+      padPrintLong(rawDiffMicros, 5, ' ');
+      lcd.print(F("us mean: "));
       lcd.print(injRefreshMod);
       lcd.setCursor(0, 2);
       lcd.print(F("Max:"));
