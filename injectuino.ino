@@ -3,8 +3,6 @@
 #include <Wire.h>
 // I2C is slow and uses more RAM and progmem
 //#include <LiquidCrystal_I2C.h>
-// This lib is fast but does not support backlight
-//#include <LiquidCrystal_SR.h>
 #include <LiquidCrystal_SR2W.h>
 #include <avr/pgmspace.h>
 #include <EEPROM.h>
@@ -38,7 +36,6 @@ byte second = 0;
 // -- Display -----------------
 //                      addr,en,rw,rs,d4,d5,d6,d7,bl,blpol
 //LiquidCrystal_I2C lcd(0x3F, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
-//LiquidCrystal_SR lcd(A4, A5);
 LiquidCrystal_SR2W lcd(A4, A5);
 
 byte oldButton = 0;
@@ -82,6 +79,9 @@ byte injRefreshMod = 8;
 byte refreshStep = 0;
 byte backupTimer = 0;
 
+unsigned long distAtStart = 0;
+float litersAtStart = 0;
+
 // -- Configuration -----------
 byte eepromOffset = 0;
 struct PersistentData {
@@ -120,7 +120,7 @@ void backup(boolean noDisplay) {
     lcd.print(F(" wc"));
     lcd.print(pData.writeCount);
 
-    delay(1000);
+    delay(1500);
   }
 }
 
@@ -302,6 +302,8 @@ void newTrip() {
   pData.liters = 0.0;
   tripCons = 100;
   injSetTotalLiters(pData.liters);
+  distAtStart = pData.distTot;
+  litersAtStart = pData.liters;
 }
 
 void readGps() {
@@ -402,6 +404,21 @@ void printConsumption() {
   }
 }
 
+void printStatFromStart() {
+  short distKm = (pData.distTot - distAtStart) / 1000;
+  float liters = pData.liters - litersAtStart;
+  lcd.setCursor(14, 2);
+  padPrintLong(distKm, 3, ' ');
+  lcd.print("km");
+  lcd.setCursor(12, 3);
+  if (distKm > 0) {
+    padPrintFloat2((liters * 100.0)/(float)distKm, 3, 1);
+  } else {
+    lcd.print(" ----");
+  }
+  lcd.print(F("L\x01\x02"));
+}
+
 float computeDte() {
   float dte = (TANK_VOL - pData.liters) * 1000.0;
   if (curSpeed > 15.0)
@@ -469,13 +486,18 @@ void printMenu() {
       padPrintFloat2(float(hdop)/100.0, 4, 2);
       break; // ----------------------------------
     case MODE_ACTION:
+      lcd.print(F("Total: "));
+      padPrintFloat2(float(pData.distTot)/1000.0, 3, 3);
+      lcd.print("km");
+      lcd.setCursor(0, 1);
       lcd.print(F("Fill tank with"));
       padPrintFloat2(pData.liters, 3, 1);
       lcd.write('L');
-      lcd.setCursor(0, 1);
-      lcd.print(F("Btn3: save now"));
       lcd.setCursor(0, 2);
-      lcd.print(F("Btn4: reset trip"));
+      padPrintFloat2(float(pData.distTrip)/1000.0, 4, 2);
+      lcd.print(F("km  B3: save"));
+      lcd.setCursor(11, 3);
+      lcd.print(F("B4: reset"));
       break;
     case MODE_STATS:
       lcd.print(F("Max:"));
@@ -492,6 +514,7 @@ void printMenu() {
       lcd.print(F("Max:"));
       padPrintFloat2(maxSpeed, 3, 1);
       lcd.print(F("kmh"));
+      printStatFromStart();
       break;
   }
 }
@@ -537,6 +560,9 @@ void setup() {
     pData.liters = 0.0;
     pData.backlight = 80;
   }
+
+  distAtStart = pData.distTot;
+  litersAtStart = pData.liters;
 
   // start listening to GPS
   Serial.begin(9600);
