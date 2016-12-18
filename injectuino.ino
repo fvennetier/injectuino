@@ -1,14 +1,11 @@
 #include "config.h"
-#ifdef LCD20x4
+
 #include <Wire.h>
 // I2C is slow and uses more RAM and progmem
 //#include <LiquidCrystal_I2C.h>
 // This lib is fast but does not support backlight
 //#include <LiquidCrystal_SR.h>
 #include <LiquidCrystal_SR2W.h>
-#else
-#include <LiquidCrystal.h>
-#endif
 #include <avr/pgmspace.h>
 #include <EEPROM.h>
 #include <EEPROMAnything.h>
@@ -39,14 +36,11 @@ byte minute = 0;
 byte second = 0;
 
 // -- Display -----------------
-#ifdef LCD20x4
-//                    addr,en,rw,rs,d4,d5,d6,d7,bl,blpol
+//                      addr,en,rw,rs,d4,d5,d6,d7,bl,blpol
 //LiquidCrystal_I2C lcd(0x3F, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 //LiquidCrystal_SR lcd(A4, A5);
 LiquidCrystal_SR2W lcd(A4, A5);
-#else
-LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
-#endif
+
 byte oldButton = 0;
 byte resetAsked = 0;
 char mode = 0;
@@ -86,6 +80,7 @@ short tripCons = 100;
 unsigned long lastRefreshTime = 0;
 byte injRefreshMod = 8;
 byte refreshStep = 0;
+byte backupTimer = 0;
 
 // -- Configuration -----------
 byte eepromOffset = 0;
@@ -151,46 +146,6 @@ void load() {
   }
 }
 
-#ifndef LCD20x4
-void reactButtons() {
-  byte button = 1 << (analogRead(0) >> 7);
-  button = button & ~oldButton;
-  switch (button) {
-    case BTN_RIGHT:
-      switch (mode) {
-        case MODE_BACKLIGHT:
-          pData.backlight += 4;
-          break;
-      }
-      break;
-    case BTN_UP:
-      mode = max(mode - 1, 0);
-      lcd.clear();
-      break;
-    case BTN_DOWN:
-      mode = min(mode + 1, MODE_BACKLIGHT);
-      lcd.clear();
-      break;
-    case BTN_LEFT:
-      switch (mode) {
-        case MODE_BACKLIGHT:
-          pData.backlight -= 4;
-          break;
-      }
-      break;
-    case BTN_SELECT:
-      if (mode == MODE_TRIP)
-        newTrip();
-      else {
-        backup(false);
-      }
-      break;
-    default:
-      break;
-  }
-  oldButton = button;
-}
-#else
 byte readButtons() {
   byte value = 0;
   byte rawValue = (byte)(analogRead(0) / 8);
@@ -245,7 +200,7 @@ void reactButtons() {
           return;
         }
       } else {
-        injRefreshMod = 2 + (injRefreshMod % INJ_MEAN_SAMPLES);
+        injRefreshMod = max(2, 2 * (injRefreshMod % INJ_MEAN_SAMPLES));
       }
       break;
     default:
@@ -254,7 +209,6 @@ void reactButtons() {
   resetAsked = 0;
   oldButton = button;
 }
-#endif
 
 void readVoltage() {
   // val / resolution * vref * divisor
@@ -427,11 +381,7 @@ void padPrintFloatShort(short num, char units, byte div) {
 }
 
 void printSpeed() {
-#ifdef LCD20x4
   lcd.setCursor(0, 3);
-#else
-  lcd.setCursor(0, 1);
-#endif
   if (fix_age > 5000) {
     lcd.print(F("No GPS "));
   } else {
@@ -441,23 +391,14 @@ void printSpeed() {
 }
 
 void printConsumption() {
-#ifdef LCD20x4
   lcd.setCursor(12, 3);
-#else
-  lcd.setCursor(7, 1);
-#endif
   if (curSpeed < 15.0) {
     lcd.write(' ');
     padPrintFloatShort(consPerHour, 2, 10);
     lcd.print(F("L/h"));
   } else {
-#ifdef LCD20x4
     padPrintFloatShort(instantCons, 3, 10);
     lcd.print(F("L\x01\x02"));
-#else
-    padPrintFloatShort(instantCons, 3, 10);
-    lcd.print("L100");
-#endif
   }
 }
 
@@ -470,99 +411,6 @@ float computeDte() {
   return dte;
 }
 
-#ifndef LCD20x4
-void printMenu() {
-  lcd.setCursor(0, 0);
-  switch (mode) {
-    case MODE_RPM_DUTY:
-    {
-      padPrintLong(rpm, 4, ' ');
-      lcd.print("RPM   ");
-      padPrintFloatShort(duty, 3, 10);
-      lcd.print("%");
-      break;
-    }
-    case MODE_TRIP:
-    {
-      padPrintLong(pData.distTrip, 6, ' ');
-      lcd.print("m ");
-      padPrintFloat2(pData.liters, 3, 3);
-      lcd.print("L ");
-      break;
-    }
-    case MODE_DISTANCE:
-    {
-      padPrintLong((pData.distTot)/1000, 6, ' ');
-      lcd.print("km ");
-      padPrintFloatShort(voltage, 2, 10);
-//      lcd.setCursor(15, 0);
-      lcd.write('V');
-      break;
-    }
-    case MODE_CONS_DTE:
-    {
-      lcd.print("DTE:");
-      if (tripCons == 0) {
-        lcd.print(" ---");
-      } else {
-        float dte; = computeDte();
-        padPrintLong(long(dte), 4, ' ');
-      }
-      lcd.print("km ");
-      padPrintFloatShort(tripCons, 2, 10);
-      lcd.write('L');
-      break;
-    }
-    case MODE_POSITION:
-    {
-      padPrintFloat2(abs(pData.lastLat), 2, 4);
-      lcd.write((pData.lastLat>0)?'N':'S');
-      lcd.write(' ');
-      padPrintFloat2(abs(pData.lastLon), 3, 4);
-      lcd.write((pData.lastLon>0)?'E':'W');
-      break;
-    }
-    case MODE_BACKLIGHT:
-    {
-      pData.backlight = constrain(pData.backlight, 0, 255);
-      analogWrite (BACKLIGHT_PIN, pData.backlight);
-      lcd.print("Backlight: ");
-      padPrintLong(pData.backlight, 3, ' ');
-      break;
-    }
-    case MODE_LOGGING:
-    {
-      if (sdEnabled) {
-        unsigned long fileSize = 0;
-        File dataFile = SD.open(FILENAME_LOG, FILE_READ);
-        if (dataFile) {
-          fileSize = dataFile.size();
-          dataFile.close();
-        }
-        lcd.print("Log: ");
-        lcd.print(fileSize);
-        lcd.write('b');
-      } else {
-        lcd.print(F("No SD card"));
-      }
-      break;
-    }
-    case MODE_TIME:
-    {
-      lcd.print("Time: ");
-      padPrintLong(hour, 2, '0');
-      lcd.write(':');
-      padPrintLong(minute, 2, '0');
-      lcd.write(':');
-      padPrintLong(second, 2, '0');
-      break;
-    }
-    default:
-      break;
-  }
-  printConsumption();
-}
-#else
 void printMenu() {
   float dte, hdop;
   lcd.setCursor(0, 0);
@@ -647,14 +495,9 @@ void printMenu() {
       break;
   }
 }
-#endif
 
 void setBacklight() {
-#ifndef LCD20x4
-  analogWrite (BACKLIGHT_PIN, pData.backlight);
-#else
   lcd.setBacklight(pData.backlight);
-#endif
 }
 
 void lowPowerLoop() {
@@ -671,13 +514,7 @@ void lowPowerLoop() {
 void setup() {
 //  pinMode(13, OUTPUT);
   lowPowerLoop();
-  // set up the LCD's number of columns and rows:
-#ifdef LCD20x4
   lcd.begin(20, 4);
-#else
-  lcd.begin(16, 2);
-  pinMode(BACKLIGHT_PIN, OUTPUT);
-#endif
   lcd.clear();
   lcd.createChar(1, k10);
   lcd.createChar(2, m0);
@@ -720,36 +557,7 @@ void setup() {
   attachInterrupt(0, backupIsr, FALLING);
 }
 
-/**
- * Check if there is enough input voltage for
- * the thing to work. If no, backup, and stay in a
- * loop until power goes back on (or die).
- */
-void checkLowPower() {
-  readVoltage();
-  if (voltage > 48) {
-    return;
-  }
-
-  detachInterrupt(1);
-  Serial.end();
-
-  // Save again
-  backup(false);
-  lowPowerLoop();
-
-  setBacklight();
-  message(F("Power OK"));
-
-  Serial.begin(SERIAL_SPEED);
-  // start measuring injection again
-  attachInterrupt(1, injInterrupt, CHANGE);
-  lcd.clear();
-}
-
 void loop() {
-//  checkLowPower();
-
   unsigned long now = millis();
   readGps();
   // We must print something to make the screen flicker
@@ -773,7 +581,7 @@ void loop() {
   if ((refreshStep % injRefreshMod) == 0) {
     injCompute(&duty, &consPerHour, injRefreshMod);
     if (curSpeed > 0.0) {
-      instantCons = (instantCons + consPerHour * 100 / curSpeed) / 2;
+      instantCons = consPerHour * 100 / curSpeed;
     }
   }
 
@@ -807,6 +615,11 @@ void loop() {
     // Write log entry every 12.8s
     if (refreshStep == 126) { // %16 -> 14
       //writeLog();
+      backupTimer++;
+      // Security backup every 13 minutes
+      if ((backupTimer % 64) == 0) {
+        backup(true);
+      }
     }
   }
   printMenu();
