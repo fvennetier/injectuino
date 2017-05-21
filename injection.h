@@ -6,7 +6,7 @@
 #endif
 
 #ifndef RPM_MEAN_SAMPLES
-# define RPM_MEAN_SAMPLES 4
+# define RPM_MEAN_SAMPLES 2
 #endif
 
 #ifndef INJ_READ_PIN

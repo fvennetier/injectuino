@@ -1,3 +1,4 @@
+/* vim: tw=80 ts=2 sw=2 */
 #include "config.h"
 
 #include <Wire.h>
@@ -93,7 +94,7 @@ struct PersistentData {
   float liters;
   // Last latitude and longitude
   float lastLat, lastLon;
-  // Number of time EEPROM has been written
+  // Number of times EEPROM has been written
   int writeCount;
   // PWM value for backlight
   int backlight;
@@ -101,9 +102,19 @@ struct PersistentData {
   char padding[8];
 } pData;
 
-#define message(msg) lcd.setCursor(0, 0);\
-  lcd.print(msg);\
+void dumpEeprom() {
+  for (int16_t offset = 0; offset < 1024; offset++) {
+    byte val = EEPROM.read(offset);
+    //Serial.print(val, HEX);
+    Serial.write(val);
+    lcd.setCursor(0, 0);
+    lcd.print(offset);
+    delay(1);
+  }
+  lcd.setCursor(0, 0);
+  lcd.print(F("Done!"));
   delay(1000);
+}
 
 /* Save configuration to EEPROM */
 void backup(boolean noDisplay) {
@@ -115,12 +126,13 @@ void backup(boolean noDisplay) {
   if (!noDisplay) {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print(F("off"));
+    lcd.print(F("off "));
     lcd.print(eepromOffset);
-    lcd.print(F(" wc"));
+    lcd.setCursor(0, 1);
+    lcd.print(F("wc "));
     lcd.print(pData.writeCount);
 
-    delay(1500);
+    delay(2000);
   }
 }
 
@@ -183,8 +195,12 @@ void reactButtons() {
       lcd.clear();
       break;
     case BTN_MIDDLE1:
-      pData.backlight = !pData.backlight;
-      lcd.setBacklight(pData.backlight);
+      if (mode == MODE_ACTION) {
+        dumpEeprom();
+      } else {
+        pData.backlight = !pData.backlight;
+        lcd.setBacklight(pData.backlight);
+      }
       break;
     case BTN_MIDDLE2:
       backup(false);
@@ -229,17 +245,17 @@ float readVcc() {
     ADMUX = _BV(MUX3) | _BV(MUX2);
   #else
     ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-  #endif  
- 
+  #endif
+
   delay(2); // Wait for Vref to settle
   ADCSRA |= _BV(ADSC); // Start conversion
   while (bit_is_set(ADCSRA,ADSC)); // measuring
- 
-  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH  
+
+  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH
   uint8_t high = ADCH; // unlocks both
- 
+
   long result = (high<<8) | low;
- 
+
   return 1125.3 / float(result); // Calculate Vcc (in V); 1125.3 = 1.1*1023
 }
 
@@ -331,7 +347,7 @@ void readGps() {
     }
   }
 }
-  
+
 void padPrintFloat2(float num, char units, char decis) {
   float num2 = abs(num);
   byte digits = 0;
@@ -490,9 +506,9 @@ void printMenu() {
       padPrintFloat2(float(pData.distTot)/1000.0, 3, 3);
       lcd.print("km");
       lcd.setCursor(0, 1);
-      lcd.print(F("Fill tank with"));
+      lcd.print(F("Fill"));
       padPrintFloat2(pData.liters, 3, 1);
-      lcd.write('L');
+      lcd.print(F("L B2: dump"));
       lcd.setCursor(0, 2);
       padPrintFloat2(float(pData.distTrip)/1000.0, 4, 2);
       lcd.print(F("km  B3: save"));
@@ -598,7 +614,7 @@ void loop() {
   refreshStep++;
 
   // Probe injection each 4 loops (200ms)
-  if ((refreshStep % 4) == 0) { // %16 -> 0, 4, 8, 12
+  if ((refreshStep % 4) == 0) {
     injTakeSample(voltage);
     injGetRpm(&rpm);
   }
