@@ -139,6 +139,7 @@ void backup(boolean noDisplay) {
 /* ISR called when pin 2 falls down */
 void backupIsr() {
   backup(true);
+  digitalWrite(13, HIGH);
 }
 
 /* Load configuration from EEPROM */
@@ -346,6 +347,8 @@ void readGps() {
       }
     }
   }
+
+  gps.get_position(NULL, NULL, &fix_age);
 }
 
 void padPrintFloat2(float num, char units, char decis) {
@@ -542,19 +545,20 @@ void setBacklight() {
 void lowPowerLoop() {
   float vcc = readVcc();
   while (vcc < 4.92f) {
+    digitalWrite(13, HIGH);
+    lcd.setCursor(0, 0);
+    lcd.print(F("USB?"));
     delay(400);
     vcc = readVcc();
-//    digitalWrite(13, HIGH);
-    delay(100);
-//    digitalWrite(13, LOW);
   }
 }
 
 void setup() {
-//  pinMode(13, OUTPUT);
-  lowPowerLoop();
+  pinMode(13, OUTPUT);
   lcd.begin(20, 4);
   lcd.clear();
+  lowPowerLoop();
+  digitalWrite(13, LOW);
   lcd.createChar(1, k10);
   lcd.createChar(2, m0);
 
@@ -580,15 +584,41 @@ void setup() {
   distAtStart = pData.distTot;
   litersAtStart = pData.liters;
 
-  // start listening to GPS
-  Serial.begin(9600);
-  Serial.println(F(SERIAL_SET_SPEED));
-  delay(100);
+  // Ask the GPS module to increase serial bitrate
+  if (readButtons() == BTN_TOP) {
+    Serial.begin(9600);
+    lcd.setCursor(0, 0);
+    lcd.print(F("Serial"));
+    Serial.println(F(SERIAL_SET_SPEED));
+    delay(200);
+    Serial.end();
+    delay(200);
+  }
 
+  // start listening to GPS
   Serial.begin(SERIAL_SPEED);
+  lcd.setCursor(0, 1);
+  lcd.print(F("GPS "));
   delay(500);
+
   // If we are lucky enough, we can get a time fix now
   readGps();
+  delay(500);
+  readGps();
+
+  unsigned long age = 0;
+  gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, &age);
+  if (age != gps.GPS_INVALID_AGE) {
+    lcd.setCursor(0, 2);
+    lcd.print(year);
+    lcd.write('-');
+    lcd.print(month);
+    lcd.write('-');
+    lcd.print(day);
+  } else {
+    lcd.print(F("not ready"));
+  }
+  delay(1000);
 
   setBacklight();
 
