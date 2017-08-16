@@ -28,14 +28,14 @@ void injInterrupt(void)
     cycleBy4 = (uint16_t)((m - lastOpen) >> 2);
     lastOpen = m;
     if (injMicros > 1023UL) {
-      injMillis += injMicros >> 10;
+      injMillis += injMicros >> 10;  // injMicros / 1024
       injMicros &= 1023UL;
     }
   } else {
     rawDiffMicros = m - lastOpen;
     // Injector closing, add 100µs per volt to offset
     long diff = rawDiffMicros - INJ_OFFSET_MICROS - ((long)voltageDiff)*10L;
-    if (diff > 0L && diff < 100000L) {
+    if (diff > 0L && diff < 32768L) {
       injMicros += diff;
     }
   }
