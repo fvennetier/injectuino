@@ -22,6 +22,7 @@
 #define PMTK_SET_BAUD_19200 "$PMTK251,19200*22"
 #define PMTK_SET_BAUD_14400 "$PMTK251,14400*29"
 #define PMTK_SET_BAUD_9600 "$PMTK251,9600*17"
+#define PMTK_Q_RELEASE "$PMTK605*31"
 TinyGPS gps;
 unsigned long fix_age = TinyGPS::GPS_INVALID_AGE;
 
@@ -230,8 +231,9 @@ void reactButtons() {
 void readVoltage() {
   // val / resolution * vref * divisor
   //  x  /    1023    *  5   *  3
-  float _voltage = analogRead(VOLTAGE_PIN) * 0.0146627566 + VOLTAGE_OFFSET;
-  voltage = (short)(_voltage * 10.0);
+  short s_voltage = (analogRead(VOLTAGE_PIN) + analogRead(VOLTAGE_PIN)) / 2;
+  float f_voltage = s_voltage * 0.0146627566 + VOLTAGE_OFFSET;
+  voltage = (short)(f_voltage * 10.0);
 }
 
 float readVcc() {
@@ -326,9 +328,17 @@ void newTrip() {
 void readGps() {
   int incomingByte = 0;
   float lat = pData.lastLat, lon = pData.lastLon;
+  byte loop = 0;
 
   while (Serial.available() > 0) {
     incomingByte = Serial.read();
+
+/*
+    if (mode == MODE_STATS && incomingByte >= 32) {
+      lcd.setCursor(8 + (loop++ % 4), 3);
+      lcd.write((byte)incomingByte);
+    }
+*/
 
     if (gps.encode(incomingByte)) {
       gps.f_get_position(&lat, &lon, &fix_age);
@@ -447,6 +457,22 @@ float computeDte() {
   return dte;
 }
 
+void printTimeDate() {
+  lcd.setCursor(0, 1);
+  padPrintLong((hour + 1 + (month > 3 && month < 11)) % 24, 2, '0');
+  lcd.write(':');
+  padPrintLong(minute, 2, '0');
+  lcd.write(':');
+  padPrintLong(second, 2, '0');
+  lcd.write(' ');
+  lcd.write(' ');
+  padPrintLong(day, 2, '0');
+  lcd.write('/');
+  padPrintLong(month, 2, '0');
+  lcd.write('/');
+  padPrintLong(year, 4, '0');
+}
+
 void printMenu() {
   float dte, hdop;
   lcd.setCursor(0, 0);
@@ -480,19 +506,7 @@ void printMenu() {
       lcd.print(F("Total: "));
       padPrintFloat2(float(pData.distTot)/1000.0, 3, 3);
       lcd.print("km");
-      lcd.setCursor(0, 1); // --------------------
-      padPrintLong((hour + 1 + (month > 3 && month < 11)) % 24, 2, '0');
-      lcd.write(':');
-      padPrintLong(minute, 2, '0');
-      lcd.write(':');
-      padPrintLong(second, 2, '0');
-      lcd.write(' ');
-      lcd.write(' ');
-      padPrintLong(day, 2, '0');
-      lcd.write('/');
-      padPrintLong(month, 2, '0');
-      lcd.write('/');
-      padPrintLong(year, 4, '0');
+      printTimeDate(); // ------------------------
       lcd.setCursor(0, 2); // --------------------
       padPrintFloat2(abs(pData.lastLat), 2, 5);
       lcd.write((pData.lastLat>0)?'N':'S');
@@ -584,37 +598,35 @@ void setup() {
   distAtStart = pData.distTot;
   litersAtStart = pData.liters;
 
+  Serial.begin(9600);
+
   // Ask the GPS module to increase serial bitrate
   if (readButtons() == BTN_TOP) {
-    Serial.begin(9600);
     lcd.setCursor(0, 0);
     lcd.print(F("Serial"));
+    while (Serial.available() > 0)
+      Serial.read();
     Serial.println(F(SERIAL_SET_SPEED));
-    delay(200);
-    Serial.end();
-    delay(200);
+    Serial.flush();
+    delay(10);
+    Serial.begin(SERIAL_SPEED);
+    delay(500);
   }
 
   // start listening to GPS
-  Serial.begin(SERIAL_SPEED);
-  lcd.setCursor(0, 1);
-  lcd.print(F("GPS "));
-  delay(500);
+  lcd.setCursor(0, 0);
+  lcd.print(F("GPS   "));
+  delay(1000);
 
   // If we are lucky enough, we can get a time fix now
   readGps();
-  delay(500);
+  delay(1000);
   readGps();
 
   unsigned long age = 0;
   gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, &age);
-  if (age != gps.GPS_INVALID_AGE) {
-    lcd.setCursor(0, 2);
-    lcd.print(year);
-    lcd.write('-');
-    lcd.print(month);
-    lcd.write('-');
-    lcd.print(day);
+  if (minute < 96) {
+    printTimeDate();
   } else {
     lcd.print(F("not ready"));
   }
