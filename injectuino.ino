@@ -480,8 +480,8 @@ void printMenu() {
     case MODE_NORMAL: // -------------------------
       padPrintLong(rpm, 4, ' ');
       lcd.print(F("RPM"));
-      padPrintFloatShort(duty, 3, 10);
-      lcd.write('%');
+      padPrintLong(lastInjMicros, 5, ' ');
+      lcd.print(F("us"));
       padPrintFloatShort(voltage, 3, 10);
       lcd.write('V');
       lcd.setCursor(0, 1); // --------------------
@@ -540,8 +540,8 @@ void printMenu() {
       lcd.write('%');
       lcd.setCursor(0, 1);
       lcd.print(F("Inj:"));
-      padPrintLong(rawDiffMicros, 5, ' ');
-      lcd.print(F("us mean: "));
+      padPrintFloatShort(duty, 3, 10);
+      lcd.print("% mean: ");
       lcd.print(injRefreshMod);
       lcd.setCursor(0, 2);
       lcd.print(F("Max:"));
@@ -688,7 +688,7 @@ void loop() {
       break;
     case 5:
     case 7:
-      if (rpm > maxRpm)
+      if (rpm > maxRpm && rpm < maxRpm + 2000)
         maxRpm = rpm;
       if (duty > maxDuty && duty < 1000)
         maxDuty = duty;

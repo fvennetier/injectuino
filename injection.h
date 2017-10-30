@@ -18,7 +18,7 @@
 #endif
 
 #ifndef INJ_OFFSET_MICROS
-# define INJ_OFFSET_MICROS 750L
+# define INJ_OFFSET_MICROS 750
 #endif
 
 void injInterrupt(void);

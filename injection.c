@@ -8,8 +8,9 @@
 
 static unsigned long lastInjMillis = 0;
 static unsigned long lastSampleTime = 0;
-static volatile uint32_t injMillis = 0, injMicros = 0;
-static volatile long rawDiffMicros = 0;
+static volatile uint32_t injMillis = 0;
+static uint16_t injMicros = 0;
+static volatile uint16_t lastInjMicros = 0;
 static volatile uint32_t lastOpen;
 // Time between two cycles divided by 4, in microseconds
 static volatile uint16_t cycleBy4 = 0xFFFF;
@@ -25,17 +26,20 @@ void injInterrupt(void)
   unsigned long m = micros();
   if (digitalRead(INJ_READ_PIN) == LOW) {
     // Injector opening
+    // Time elapsed since last opening
     cycleBy4 = (uint16_t)((m - lastOpen) >> 2);
     lastOpen = m;
-    if (injMicros > 1023UL) {
-      injMillis += injMicros >> 10;  // injMicros / 1024
-      injMicros &= 1023UL;
-    }
+    // Move micros to millis, keep the carry
+    injMillis += injMicros >> 10;  // injMicros / 1024
+    injMicros &= 1023U;
   } else {
-    rawDiffMicros = m - lastOpen;
-    // Injector closing, add 100µs per volt to offset
-    long diff = rawDiffMicros - INJ_OFFSET_MICROS - ((long)voltageDiff)*10L;
-    if (diff > 0L && diff < 32768L) {
+    // Injector closing
+    // Time elapsed since opening
+    lastInjMicros = (m - lastOpen) & 0xFFFF;
+    // Substract injector offset (plus 100µs per volt under 14V)
+    uint16_t correction = INJ_OFFSET_MICROS + ((int16_t)voltageDiff)*10;
+    int16_t diff = lastInjMicros - correction;
+    if (diff > 0) {
       injMicros += diff;
     }
   }
