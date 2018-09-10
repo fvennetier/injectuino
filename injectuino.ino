@@ -2,8 +2,6 @@
 #include "config.h"
 
 #include <Wire.h>
-// I2C is slow and uses more RAM and progmem
-//#include <LiquidCrystal_I2C.h>
 #include <LiquidCrystal_SR2W.h>
 #include <avr/pgmspace.h>
 #include <EEPROM.h>
@@ -70,6 +68,7 @@ short rpm = 0;
 short maxRpm = 0;
 short duty = 0;
 short maxDuty = 0;
+short maxDutyRpm = 0;
 short consPerHour = 0;
 short instantCons = 0;
 short voltage = 0;
@@ -77,7 +76,7 @@ short tripCons = 100;
 
 // -- Timing ------------------
 unsigned long lastRefreshTime = 0;
-byte injRefreshMod = 8;
+byte injRefreshMod = 4;
 byte refreshStep = 0;
 byte backupTimer = 0;
 
@@ -434,14 +433,14 @@ void printConsumption() {
 }
 
 void printStatFromStart() {
-  short distKm = (pData.distTot - distAtStart) / 1000;
+  short distHm = (pData.distTot - distAtStart) / 100;
   float liters = pData.liters - litersAtStart;
   lcd.setCursor(14, 2);
-  padPrintLong(distKm, 3, ' ');
+  padPrintLong(distHm / 10, 3, ' ');
   lcd.print("km");
   lcd.setCursor(12, 3);
-  if (distKm > 0) {
-    padPrintFloat2((liters * 100.0)/(float)distKm, 3, 1);
+  if (distHm > 0) {
+    padPrintFloat2((liters * 1000.0)/(float)distHm, 3, 1);
   } else {
     lcd.print(" ----");
   }
@@ -532,21 +531,25 @@ void printMenu() {
       lcd.setCursor(11, 3);
       lcd.print(F("B4: reset"));
       break;
+
     case MODE_STATS:
       lcd.print(F("Max:"));
-      padPrintLong(maxRpm, 5, ' ');
-      lcd.print(F("RPM"));
       padPrintFloatShort(maxDuty, 3, 10);
-      lcd.write('%');
+      lcd.print("%@");
+      padPrintLong(maxDutyRpm, 4, ' ');
+      lcd.print(F("RPM"));
+
       lcd.setCursor(0, 1);
       lcd.print(F("Inj:"));
       padPrintFloatShort(duty, 3, 10);
       lcd.print("% mean: ");
       lcd.print(injRefreshMod);
+
       lcd.setCursor(0, 2);
       lcd.print(F("Max:"));
       padPrintFloat2(maxSpeed, 3, 1);
       lcd.print(F("kmh"));
+
       printStatFromStart();
       break;
   }
@@ -669,8 +672,8 @@ void loop() {
     }
   }
 
-  // Refresh consumption every 32 loops (1.6s), not at the same time as injection
-  if ((refreshStep % 32) == 2) { // %16 -> 2, 10
+  // Refresh consumption every 64 loops (3.2s), not at the same time as injection
+  if ((refreshStep % 64) == 2) {
     injGetTotalLiters(&(pData.liters));
     if (pData.distTrip > 0)
       tripCons = short(pData.liters / float(pData.distTrip) * 1000000.0);
@@ -678,21 +681,14 @@ void loop() {
   // React to user key presses each odd loop (100ms), and refresh time each even
   if (refreshStep % 2) {
     reactButtons();
-    switch (refreshStep % 8) {
-    case 1:
-      readVoltage();
-      break;
-    case 3:
-      if (curSpeed > maxSpeed)
-        maxSpeed = curSpeed;
-      break;
-    case 5:
-    case 7:
-      if (rpm > maxRpm && rpm < maxRpm + 2000)
-        maxRpm = rpm;
-      if (duty > maxDuty && duty < 1000)
-        maxDuty = duty;
-      break;
+    readVoltage();
+    if (curSpeed > maxSpeed)
+      maxSpeed = curSpeed;
+    if (rpm > maxRpm && rpm < maxRpm + 1500)
+      maxRpm = rpm;
+    if (duty > maxDuty) {
+      maxDuty = duty;
+      maxDutyRpm = rpm;
     }
   } else {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, NULL);

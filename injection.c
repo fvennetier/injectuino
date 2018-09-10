@@ -74,6 +74,7 @@ void injTakeSample(short voltage10)
   } else {
     dutyArr[sampleId % INJ_MEAN_SAMPLES] = 0;
     rpmArr[sampleId % RPM_MEAN_SAMPLES] = 0;
+    lastInjMicros = 0;
   }
   sampleId++;
 }
