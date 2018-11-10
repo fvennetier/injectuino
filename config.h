@@ -12,7 +12,6 @@
 #define FILENAME_LOADME "loadme.rom"
 
 #define BACKLIGHT_PIN 10
-#define CHIPSELECT_PIN 8
 #define INJ_READ_PIN 3
 #define POWER_PIN 2
 #define KEYPAD_PIN A0

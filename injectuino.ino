@@ -261,60 +261,6 @@ float readVcc() {
   return 1125.3 / float(result); // Calculate Vcc (in V); 1125.3 = 1.1*1023
 }
 
-// This code may be used to log to something else (bluetooth?)
-/*
-void writeLog() {
-  if (year <= 2000) {
-    return;
-  }
-  File dataFile = SD.open(FILENAME_LOG, FILE_WRITE);
-  if (dataFile) {
-    // Datetime
-    dataFile.print(year);
-    dataFile.write('-');
-    if (month < 10)
-      dataFile.write('0');
-    dataFile.print(month);
-    dataFile.write('-');
-    if (day < 10)
-      dataFile.write('0');
-    dataFile.print(day);
-    dataFile.write('T');
-    if (hour < 10)
-      dataFile.write('0');
-    dataFile.print(hour);
-    dataFile.write(':');
-    if (minute < 10)
-      dataFile.write('0');
-    dataFile.print(minute);
-    dataFile.write(':');
-    if (second < 10)
-      dataFile.write('0');
-    dataFile.print(second);
-    dataFile.write('Z');
-    dataFile.write(',');
-    // Latitude and longitude
-    dataFile.print(pData.lastLat, 6);
-    dataFile.write(',');
-    dataFile.print(pData.lastLon, 6);
-    dataFile.write(',');
-    // Current speed
-    dataFile.print(int(curSpeed));
-    dataFile.write(',');
-    // Current duty cycle
-    dataFile.print(duty);
-    dataFile.write(',');
-    // Current RPM
-    dataFile.print(rpm);
-    dataFile.write(',');
-    // Current total distance
-    dataFile.print(pData.distTot);
-    dataFile.write('\n');
-    dataFile.close();
-  }
-}
-*/
-
 void newTrip() {
   pData.distTrip = 0;
   pData.liters = 0.0;
@@ -331,13 +277,6 @@ void readGps() {
 
   while (Serial.available() > 0) {
     incomingByte = Serial.read();
-
-/*
-    if (mode == MODE_STATS && incomingByte >= 32) {
-      lcd.setCursor(8 + (loop++ % 4), 3);
-      lcd.write((byte)incomingByte);
-    }
-*/
 
     if (gps.encode(incomingByte)) {
       gps.f_get_position(&lat, &lon, &fix_age);
@@ -579,7 +518,6 @@ void setup() {
   lcd.createChar(1, k10);
   lcd.createChar(2, m0);
 
-  pinMode(CHIPSELECT_PIN, OUTPUT);
   pinMode(INJ_READ_PIN, INPUT);
   pinMode(KEYPAD_PIN, INPUT_PULLUP);
   pinMode(VOLTAGE_PIN, INPUT);
@@ -704,4 +642,3 @@ void loop() {
   }
   printMenu();
 }
-
