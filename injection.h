@@ -22,9 +22,9 @@
 #endif
 
 void injInterrupt(void);
-void injTakeSample(short voltage10);
-void injCompute(short *dutyCycle, short *consLiterPerHour, byte samples);
-void injGetRpm(short *rpm);
+void injTakeSample(uint16_t voltage10);
+void injCompute(uint16_t *dutyCycle, uint16_t *consLiterPerHour, byte samples);
+void injGetRpm(uint16_t *rpm);
 void injGetTotalLiters(float *totalLiters);
 void injSetTotalLiters(float totalLiters);
 

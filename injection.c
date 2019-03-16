@@ -5,9 +5,17 @@
 #include "injection.h"
 
 #define MILLIS_TO_LITERS (INJ_CC_BY_MIN / 60000000.0 * 1.024)
+#define SAFE_COPY(type_,var_) ({ \
+  volatile type_ __tmp0, __tmp1; \
+  do { \
+    __tmp0 = var_; \
+    __tmp1 = var_; \
+  } while (__tmp0 != __tmp1); \
+  __tmp1; \
+})
 
-static unsigned long lastInjMillis = 0;
-static unsigned long lastSampleTime = 0;
+static uint32_t lastInjMillis = 0;
+static uint32_t lastSampleTime = 0;
 static volatile uint32_t injMillis = 0;
 static uint16_t injMicros = 0;
 static volatile uint16_t lastInjMicros = 0;
@@ -18,24 +26,24 @@ static volatile signed char voltageDiff = 0;
 
 
 static byte sampleId = 0;
-static short rpmArr[RPM_MEAN_SAMPLES] = {0};
-static short dutyArr[INJ_MEAN_SAMPLES] = {0};
+static uint16_t rpmArr[RPM_MEAN_SAMPLES] = {0};
+static uint16_t dutyArr[INJ_MEAN_SAMPLES] = {0};
 
 void injInterrupt(void)
 {
-  unsigned long m = micros();
+  uint32_t now = micros();
   if (digitalRead(INJ_READ_PIN) == LOW) {
     // Injector opening
     // Time elapsed since last opening
-    cycleBy4 = (uint16_t)((m - lastOpen) >> 2);
-    lastOpen = m;
+    cycleBy4 = (uint16_t)((now - lastOpen) >> 2);
+    lastOpen = now;
     // Move micros to millis, keep the carry
     injMillis += injMicros >> 10;  // injMicros / 1024
     injMicros &= 1023U;
   } else {
     // Injector closing
     // Time elapsed since opening
-    lastInjMicros = (m - lastOpen) & 0xFFFF;
+    lastInjMicros = (now - lastOpen) & 0xFFFF;
     // Substract injector offset (plus 100µs per volt under 14V)
     uint16_t correction = INJ_OFFSET_MICROS + ((int16_t)voltageDiff)*10;
     int16_t diff = lastInjMicros - correction;
@@ -45,20 +53,18 @@ void injInterrupt(void)
   }
 }
 
-void injTakeSample(short voltage10)
+void injTakeSample(uint16_t voltage10)
 {
-  unsigned long curInjMillis;
-  unsigned long curTime;
+  uint32_t curInjMillis;
+  uint32_t curTime;
 
   voltageDiff = (signed char)(140 - voltage10);
 
-  cli();
   curTime = millis();
-  curInjMillis = injMillis;
-  sei();
+  curInjMillis = SAFE_COPY(uint32_t, injMillis);
 
-  unsigned long injGap = curInjMillis - lastInjMillis;
-  unsigned long timeGap = curTime - lastSampleTime;
+  uint32_t injGap = curInjMillis - lastInjMillis;
+  uint32_t timeGap = curTime - lastSampleTime;
 
   if (timeGap < 200) {
     return;
@@ -79,11 +85,11 @@ void injTakeSample(short voltage10)
   sampleId++;
 }
 
-void injCompute(short *dutyCycle10, short *consLiterPerHour10, byte samples)
+void injCompute(uint16_t *dutyCycle10, uint16_t *consLiterPerHour10, byte samples)
 {
-  unsigned long dutySum = 0;
+  uint32_t dutySum = 0;
   byte i;
-  short id;
+  byte id;
 
   for (i = 0; i < samples; i++) {
     id = (sampleId + INJ_MEAN_SAMPLES - i) % INJ_MEAN_SAMPLES;
@@ -93,31 +99,28 @@ void injCompute(short *dutyCycle10, short *consLiterPerHour10, byte samples)
   *dutyCycle10 = min(1000, *dutyCycle10);
 
   // cc/min * 0.06 = L/h
-  *consLiterPerHour10 = (short)((INJ_CC_BY_MIN * *dutyCycle10) / 1666L);
+  *consLiterPerHour10 = (uint16_t)((INJ_CC_BY_MIN * *dutyCycle10) / 1666L);
 }
 
-void injGetRpm(short *rpm)
+void injGetRpm(uint16_t *rpm)
 {
-  int i;
-  long rpmSum = 0;
+  byte i;
+  uint32_t rpmSum = 0;
   for (i = 0; i < RPM_MEAN_SAMPLES; i++) {
     rpmSum += rpmArr[i];
   }
-  *rpm = rpmSum / RPM_MEAN_SAMPLES;
+  *rpm = (uint16_t)(rpmSum / RPM_MEAN_SAMPLES);
 }
 
 void injGetTotalLiters(float *totalLiters)
 {
-  unsigned long totalTime;
-  cli();
-  totalTime = injMillis;
-  sei();
+  uint32_t totalTime = SAFE_COPY(uint32_t, injMillis);
   *totalLiters = ((float)totalTime) * MILLIS_TO_LITERS;
 }
 
 void injSetTotalLiters(float totalLiters) {
   cli();
-  injMillis = (unsigned long)(totalLiters / MILLIS_TO_LITERS);
+  injMillis = (uint32_t)(totalLiters / MILLIS_TO_LITERS);
   lastInjMillis = injMillis;
   sei();
 }

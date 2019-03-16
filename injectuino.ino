@@ -64,40 +64,44 @@ byte m0[8] = {
 };
 
 // -- Injection ---------------
-short rpm = 0;
-short maxRpm = 0;
-short duty = 0;
-short maxDuty = 0;
-short maxDutyRpm = 0;
-short consPerHour = 0;
-short instantCons = 0;
-short voltage = 0;
-short tripCons = 100;
+uint16_t rpm = 0;
+uint16_t maxRpm = 0;
+uint16_t duty = 0;
+uint16_t maxDuty = 0;
+uint16_t maxDutyMicros = 0;
+uint16_t maxDutyRpm = 0;
+uint16_t consPerHour = 0;
+uint16_t instantCons = 0;
+uint16_t voltage = 0;
+uint16_t tripCons = 100;
+uint16_t curInjMicros = 0;
+uint16_t maxInjMicros = 0;
+uint16_t maxInjMicrosRpm = 0;
 
 // -- Timing ------------------
-unsigned long lastRefreshTime = 0;
+uint32_t lastRefreshTime = 0;
 byte injRefreshMod = 4;
 byte refreshStep = 0;
 byte backupTimer = 0;
 
-unsigned long distAtStart = 0;
+uint32_t distAtStart = 0;
 float litersAtStart = 0;
 
 // -- Configuration -----------
 byte eepromOffset = 0;
 struct PersistentData {
   // Whole traveled distance, in meters
-  unsigned long distTot;
+  uint32_t distTot;
   // Trip distance, in meters
-  unsigned long distTrip;
+  uint32_t distTrip;
   // Trip liters
   float liters;
   // Last latitude and longitude
   float lastLat, lastLon;
   // Number of times EEPROM has been written
-  int writeCount;
+  int16_t writeCount;
   // PWM value for backlight
-  int backlight;
+  int16_t backlight;
   // Padding bytes to align on 32 bytes (and allow evolutions)
   char padding[8];
 } pData;
@@ -118,7 +122,6 @@ void dumpEeprom() {
 
 /* Save configuration to EEPROM */
 void backup(boolean noDisplay) {
-  unsigned long start, end;
   int realOffset = 1;
   realOffset += eepromOffset * sizeof(PersistentData);
   pData.writeCount += 1;
@@ -232,7 +235,7 @@ void readVoltage() {
   //  x  /    1023    *  5   *  3
   short s_voltage = (analogRead(VOLTAGE_PIN) + analogRead(VOLTAGE_PIN)) / 2;
   float f_voltage = s_voltage * 0.0146627566 + VOLTAGE_OFFSET;
-  voltage = (short)(f_voltage * 10.0);
+  voltage = (uint16_t)(f_voltage * 10.0);
 }
 
 float readVcc() {
@@ -273,7 +276,6 @@ void newTrip() {
 void readGps() {
   int incomingByte = 0;
   float lat = pData.lastLat, lon = pData.lastLon;
-  byte loop = 0;
 
   while (Serial.available() > 0) {
     incomingByte = Serial.read();
@@ -285,7 +287,7 @@ void readGps() {
           pData.lastLon, lat, lon);
       // 100 <= hdop <= 100000 --> delta >= 10m
       if (delta >= float(gps.hdop()) / 10.0 && fix_age < 2000) {
-        unsigned short uDelta = (unsigned short)delta;
+        uint16_t uDelta = (uint16_t)delta;
         pData.lastLat = lat;
         pData.lastLon = lon;
         if (uDelta < 20000u) {
@@ -315,8 +317,8 @@ void padPrintFloat2(float num, char units, char decis) {
   lcd.print(num, decis);
 }
 
-void padPrintLong(long num, char units, char pad) {
-  long num2 = abs(num);
+void padPrintShort(short num, char units, char pad) {
+  short num2 = abs(num);
   byte digits = 0;
   do {
     digits++;
@@ -354,7 +356,7 @@ void printSpeed() {
   if (fix_age > 5000) {
     lcd.print(F("No GPS "));
   } else {
-    padPrintLong(long(curSpeed), 3, ' ');
+    padPrintShort(short(curSpeed), 3, ' ');
     lcd.print(F("kmh "));
   }
 }
@@ -374,8 +376,8 @@ void printConsumption() {
 void printStatFromStart() {
   short distHm = (pData.distTot - distAtStart) / 100;
   float liters = pData.liters - litersAtStart;
-  lcd.setCursor(14, 2);
-  padPrintLong(distHm / 10, 3, ' ');
+  lcd.setCursor(7, 3);
+  padPrintShort(distHm / 10, 3, ' ');
   lcd.print("km");
   lcd.setCursor(12, 3);
   if (distHm > 0) {
@@ -397,28 +399,30 @@ float computeDte() {
 
 void printTimeDate() {
   lcd.setCursor(0, 1);
-  padPrintLong((hour + 1 + (month > 3 && month < 11)) % 24, 2, '0');
+  // DST from april to october
+  padPrintShort((hour + 1 + (month > 3 && month < 11)) % 24, 2, '0');
   lcd.write(':');
-  padPrintLong(minute, 2, '0');
+  padPrintShort(minute, 2, '0');
   lcd.write(':');
-  padPrintLong(second, 2, '0');
+  padPrintShort(second, 2, '0');
   lcd.write(' ');
   lcd.write(' ');
-  padPrintLong(day, 2, '0');
+  padPrintShort(day, 2, '0');
   lcd.write('/');
-  padPrintLong(month, 2, '0');
+  padPrintShort(month, 2, '0');
   lcd.write('/');
-  padPrintLong(year, 4, '0');
+  padPrintShort(year, 4, '0');
 }
 
 void printMenu() {
-  float dte, hdop;
+  float dte;
+  short hdop;
   lcd.setCursor(0, 0);
   switch (mode) {
     case MODE_NORMAL: // -------------------------
-      padPrintLong(rpm, 4, ' ');
+      padPrintShort(rpm, 4, ' ');
       lcd.print(F("RPM"));
-      padPrintLong(lastInjMicros, 5, ' ');
+      padPrintShort(curInjMicros, 5, ' ');
       lcd.print(F("us"));
       padPrintFloatShort(voltage, 3, 10);
       lcd.write('V');
@@ -428,7 +432,7 @@ void printMenu() {
         lcd.print(" ----");
       } else {
         dte = computeDte();
-        padPrintLong(long(dte), 5, ' ');
+        padPrintShort(short(dte), 5, ' ');
       }
       lcd.print("km");
       padPrintFloat2(TANK_VOL - pData.liters, 3, 3);
@@ -453,8 +457,10 @@ void printMenu() {
       lcd.write((pData.lastLon>0)?'E':'W');
       lcd.setCursor(7, 3);
       lcd.print(F("HDOP:"));
-      hdop = min(gps.hdop(), 999999);
-      padPrintFloat2(float(hdop)/100.0, 4, 2);
+      hdop = min(gps.hdop(), 9999);
+      padPrintFloatShort(hdop, 2, 100);
+      lcd.write('/');
+      padPrintShort(gps.satellites(), 2, '0');
       break; // ----------------------------------
     case MODE_ACTION:
       lcd.print(F("Total: "));
@@ -472,22 +478,28 @@ void printMenu() {
       break;
 
     case MODE_STATS:
-      lcd.print(F("Max:"));
-      padPrintFloatShort(maxDuty, 3, 10);
-      lcd.print("%@");
-      padPrintLong(maxDutyRpm, 4, ' ');
+      lcd.print(F("Max: "));
+      padPrintShort(maxInjMicros, 5, ' ');
+      lcd.print(F("us@"));
+      padPrintShort(maxInjMicrosRpm, 4, ' ');
       lcd.print(F("RPM"));
 
       lcd.setCursor(0, 1);
-      lcd.print(F("Inj:"));
-      padPrintFloatShort(duty, 3, 10);
-      lcd.print("% mean: ");
-      lcd.print(injRefreshMod);
+      padPrintShort(injRefreshMod, 2, '0');
+
+      lcd.setCursor(5, 1);
+      padPrintShort(maxDutyMicros, 5, ' ');
+      lcd.print(F("us@"));
+      padPrintShort(maxDutyRpm, 4, ' ');
+      lcd.print(F("RPM"));
 
       lcd.setCursor(0, 2);
       lcd.print(F("Max:"));
       padPrintFloat2(maxSpeed, 3, 1);
       lcd.print(F("kmh"));
+      lcd.setCursor(13, 2);
+      padPrintShort(maxRpm, 4, ' ');
+      lcd.print(F("RPM"));
 
       printStatFromStart();
       break;
@@ -583,7 +595,7 @@ void setup() {
 }
 
 void loop() {
-  unsigned long now = millis();
+  uint32_t now = millis();
   readGps();
   // We must print something to make the screen flicker
   // fast enough so we don't see it flicker
@@ -614,18 +626,25 @@ void loop() {
   if ((refreshStep % 64) == 2) {
     injGetTotalLiters(&(pData.liters));
     if (pData.distTrip > 0)
-      tripCons = short(pData.liters / float(pData.distTrip) * 1000000.0);
+      tripCons = (uint16_t)(pData.liters / float(pData.distTrip) * 1000000.0);
   }
   // React to user key presses each odd loop (100ms), and refresh time each even
   if (refreshStep % 2) {
     reactButtons();
     readVoltage();
+    curInjMicros = SAFE_COPY(uint16_t, lastInjMicros);
     if (curSpeed > maxSpeed)
       maxSpeed = curSpeed;
+    // FIXME: rpm is not refreshed often enough
     if (rpm > maxRpm && rpm < maxRpm + 1500)
       maxRpm = rpm;
+    if (curInjMicros > maxInjMicros && rpm > 1500) {
+      maxInjMicros = curInjMicros;
+      maxInjMicrosRpm = rpm;
+    }
     if (duty > maxDuty) {
       maxDuty = duty;
+      maxDutyMicros = curInjMicros;
       maxDutyRpm = rpm;
     }
   } else {
