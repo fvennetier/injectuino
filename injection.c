@@ -5,6 +5,8 @@
 #include "injection.h"
 
 #define MILLIS_TO_LITERS (INJ_CC_BY_MIN / 60000000.0 * 1.024)
+
+/* Copy the value of a variable in an interrupt-safe manner. */
 #define SAFE_COPY(type_,var_) ({ \
   volatile type_ __tmp0, __tmp1; \
   do { \
@@ -102,7 +104,7 @@ void injCompute(uint16_t *dutyCycle10, uint16_t *consLiterPerHour10, byte sample
   *consLiterPerHour10 = (uint16_t)((INJ_CC_BY_MIN * *dutyCycle10) / 1666L);
 }
 
-void injGetRpm(uint16_t *rpm)
+void injGetSmoothRpm(uint16_t *rpm)
 {
   byte i;
   uint32_t rpmSum = 0;
@@ -110,6 +112,12 @@ void injGetRpm(uint16_t *rpm)
     rpmSum += rpmArr[i];
   }
   *rpm = (uint16_t)(rpmSum / RPM_MEAN_SAMPLES);
+}
+
+void injGetRpm(uint16_t *rpm)
+{
+  uint32_t cycle = 4UL * SAFE_COPY(uint16_t, cycleBy4);
+  *rpm = (uint16_t)(60 * 1000000 / cycle);
 }
 
 void injGetTotalLiters(float *totalLiters)

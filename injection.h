@@ -25,6 +25,7 @@ void injInterrupt(void);
 void injTakeSample(uint16_t voltage10);
 void injCompute(uint16_t *dutyCycle, uint16_t *consLiterPerHour, byte samples);
 void injGetRpm(uint16_t *rpm);
+void injGetSmoothRpm(uint16_t *rpm);
 void injGetTotalLiters(float *totalLiters);
 void injSetTotalLiters(float totalLiters);
 

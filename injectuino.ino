@@ -1,4 +1,4 @@
-/* vim: tw=80 ts=2 sw=2 */
+/* vim: tw=80 ts=2 sw=2 expandtab */
 #include "config.h"
 
 #include <Wire.h>
@@ -317,15 +317,16 @@ void padPrintFloat2(float num, char units, char decis) {
   lcd.print(num, decis);
 }
 
-void padPrintShort(short num, char units, char pad) {
-  short num2 = abs(num);
+/* Print a (positive) 16bit number at the current screen position.
+ * The number will be left-padded with `pad` until it fills `units`
+ * characters on screen. */
+void padPrintShort(uint16_t num, char units, char pad) {
+  uint16_t num2 = num;
   byte digits = 0;
   do {
     digits++;
     num2 /= 10;
   } while (num2 > 0);
-  if (num < 0)
-    digits++;
   while (units - digits > 0) {
     lcd.write(pad);
     digits++;
@@ -356,7 +357,7 @@ void printSpeed() {
   if (fix_age > 5000) {
     lcd.print(F("No GPS "));
   } else {
-    padPrintShort(short(curSpeed), 3, ' ');
+    padPrintShort(uint16_t(curSpeed), 3, ' ');
     lcd.print(F("kmh "));
   }
 }
@@ -432,7 +433,7 @@ void printMenu() {
         lcd.print(" ----");
       } else {
         dte = computeDte();
-        padPrintShort(short(dte), 5, ' ');
+        padPrintShort(uint16_t(dte), 5, ' ');
       }
       lcd.print("km");
       padPrintFloat2(TANK_VOL - pData.liters, 3, 3);
@@ -611,7 +612,7 @@ void loop() {
   // Probe injection each 4 loops (200ms)
   if ((refreshStep % 4) == 0) {
     injTakeSample(voltage);
-    injGetRpm(&rpm);
+    injGetSmoothRpm(&rpm);
   }
 
   // Refresh instant consumption
@@ -632,20 +633,21 @@ void loop() {
   if (refreshStep % 2) {
     reactButtons();
     readVoltage();
+    uint16_t realRpm;
+    injGetRpm(&realRpm);
     curInjMicros = SAFE_COPY(uint16_t, lastInjMicros);
     if (curSpeed > maxSpeed)
       maxSpeed = curSpeed;
-    // FIXME: rpm is not refreshed often enough
-    if (rpm > maxRpm && rpm < maxRpm + 1500)
-      maxRpm = rpm;
-    if (curInjMicros > maxInjMicros && rpm > 1500) {
+    if (realRpm > maxRpm && realRpm < maxRpm + 1500)
+      maxRpm = realRpm;
+    if (curInjMicros > maxInjMicros && realRpm > 1500) {
       maxInjMicros = curInjMicros;
-      maxInjMicrosRpm = rpm;
+      maxInjMicrosRpm = realRpm;
     }
     if (duty > maxDuty) {
       maxDuty = duty;
       maxDutyMicros = curInjMicros;
-      maxDutyRpm = rpm;
+      maxDutyRpm = realRpm;
     }
   } else {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, NULL);
