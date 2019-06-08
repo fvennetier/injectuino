@@ -1,4 +1,4 @@
-/* vim: tw=80 ts=2 sw=2 expandtab */
+// vim: tw=80 ts=2 sw=2 expandtab
 #include "config.h"
 
 #include <Wire.h>
@@ -210,10 +210,13 @@ void reactButtons() {
       backup(false);
       break;
     case BTN_BOTTOM:
-      if (mode == MODE_ACTION) {
+      if (mode == MODE_ACTION || mode == MODE_STATS) {
         // ~2s to reach 20
         if (resetAsked > 20) {
-          newTrip();
+          if (mode == MODE_ACTION)
+            newTrip();
+          else
+            resetMax();
         } else {
           resetAsked++;
           // Skip button debounce
@@ -271,6 +274,15 @@ void newTrip() {
   injSetTotalLiters(pData.liters);
   distAtStart = pData.distTot;
   litersAtStart = pData.liters;
+}
+
+void resetMax() {
+  maxSpeed = 0.0;
+  maxDuty = 0;
+  maxDutyMicros = 0;
+  maxDutyRpm = 0;
+  maxInjMicros = 0;
+  maxInjMicrosRpm = 0;
 }
 
 void readGps() {
