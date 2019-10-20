@@ -24,7 +24,7 @@ static volatile uint16_t lastInjMicros = 0;
 static volatile uint32_t lastOpen;
 // Time between two cycles divided by 4, in microseconds
 static volatile uint16_t cycleBy4 = 0xFFFF;
-static volatile signed char voltageDiff = 0;
+static volatile signed char injVoltCorrection = 0;
 
 
 static byte sampleId = 0;
@@ -46,8 +46,8 @@ void injInterrupt(void)
     // Injector closing
     // Time elapsed since opening
     lastInjMicros = (now - lastOpen) & 0xFFFF;
-    // Substract injector offset (plus 100µs per volt under 14V)
-    uint16_t correction = INJ_OFFSET_MICROS + ((int16_t)voltageDiff)*10;
+    // Substract injector offset (plus 120µs per volt under 14V)
+    uint16_t correction = INJ_OFFSET_MICROS + injVoltCorrection;
     int16_t diff = lastInjMicros - correction;
     if (diff > 0) {
       injMicros += diff;
@@ -60,7 +60,8 @@ void injTakeSample(uint16_t voltage10)
   uint32_t curInjMillis;
   uint32_t curTime;
 
-  voltageDiff = (signed char)(140 - voltage10);
+  int16_t correction = (140 - voltage10) * 12;
+  injVoltCorrection = constrain(correction, 0, 255);
 
   curTime = millis();
   curInjMillis = SAFE_COPY(uint32_t, injMillis);
