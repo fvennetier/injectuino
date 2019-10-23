@@ -63,6 +63,28 @@ byte m0[8] = {
   0b10001
 };
 
+byte degc[8] = {
+  0b01000,
+  0b10100,
+  0b01000,
+  0b00011,
+  0b00100,
+  0b00100,
+  0b00011,
+  0b00000
+};
+
+byte pump[8] = {
+  0b11111,
+  0b11111,
+  0b11111,
+  0b01110,
+  0b01101,
+  0b01101,
+  0b01100,
+  0b11110
+};
+
 // -- Injection ---------------
 uint16_t rpm = 0;
 uint16_t maxRpm = 0;
@@ -77,6 +99,7 @@ uint16_t tripCons = 100;
 uint16_t curInjMicros = 0;
 uint16_t maxInjMicros = 0;
 uint16_t maxInjMicrosRpm = 0;
+int16_t temp = 0;
 
 // -- Timing ------------------
 uint32_t lastRefreshTime = 0;
@@ -239,6 +262,23 @@ void readVoltage() {
   short s_voltage = (analogRead(VOLTAGE_PIN) + analogRead(VOLTAGE_PIN)) / 2;
   float f_voltage = s_voltage * 0.0146627566 + VOLTAGE_OFFSET;
   voltage = (uint16_t)(f_voltage * 10.0);
+}
+
+void readTemp() {
+  // https://learn.adafruit.com/thermistor/using-a-thermistor
+  float average = 0.0;
+  for (uint8_t i = 0; i < 2; i++)
+    average += analogRead(TEMP_PIN);
+  average /= 2.0;
+  average = 1023.0 / average - 1.0;
+  average = TEMP_SENSOR_SERIES_RES / average;
+  float steinhart = average / TEMP_SENSOR_NOM_RES;
+  steinhart = log(steinhart);
+  steinhart /= TEMP_SENSOR_COEF;
+  steinhart += 1.0 / (TEMP_SENSOR_NOM_TEMP + KELVIN);
+  steinhart = 1.0 / steinhart;
+  steinhart -= KELVIN;
+  temp = (int16_t) steinhart;
 }
 
 float readVcc() {
@@ -440,14 +480,17 @@ void printMenu() {
       padPrintFloatShort(voltage, 3, 10);
       lcd.write('V');
       lcd.setCursor(0, 1); // --------------------
-      lcd.print("Auto:");
+      lcd.print(">\x04");
       if (tripCons == 0) {
-        lcd.print(" ----");
+        lcd.print(" ---");
       } else {
         dte = computeDte();
-        padPrintShort(uint16_t(dte), 5, ' ');
+        padPrintShort(uint16_t(dte), 4, ' ');
       }
-      lcd.print("km");
+      lcd.print("km ");
+      lcd.print(temp);
+      lcd.write('\3');
+      lcd.setCursor(12, 1);
       padPrintFloat2(TANK_VOL - pData.liters, 3, 3);
       lcd.write('L');
       lcd.setCursor(0, 2); // --------------------
@@ -542,6 +585,8 @@ void setup() {
   digitalWrite(13, LOW);
   lcd.createChar(1, k10);
   lcd.createChar(2, m0);
+  lcd.createChar(3, degc);
+  lcd.createChar(4, pump);
 
   pinMode(INJ_READ_PIN, INPUT);
   pinMode(KEYPAD_PIN, INPUT_PULLUP);
@@ -640,6 +685,7 @@ void loop() {
     injGetTotalLiters(&(pData.liters));
     if (pData.distTrip > 0)
       tripCons = (uint16_t)(pData.liters / float(pData.distTrip) * 1000000.0);
+    readTemp();
   }
   // React to user key presses each odd loop (100ms), and refresh time each even
   if (refreshStep % 2) {
