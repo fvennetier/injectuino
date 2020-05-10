@@ -337,8 +337,8 @@ void readGps() {
       curSpeed = gps.f_speed_kmph();
       float delta = TinyGPS::distance_between(pData.lastLat,
           pData.lastLon, lat, lon);
-      // 100 <= hdop <= 100000 --> delta >= 10m
-      if (delta >= float(gps.hdop()) / 10.0 && fix_age < 2000) {
+      // 100 <= hdop <= 100000 --> delta >= 20m
+      if (delta >= float(gps.hdop()) / 5.0 && fix_age < 2000) {
         uint16_t uDelta = (uint16_t)delta;
         pData.lastLat = lat;
         pData.lastLon = lon;
