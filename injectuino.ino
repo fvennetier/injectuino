@@ -624,8 +624,13 @@ void setup() {
     delay(500);
   }
 
-  // start listening to GPS
+  // print configuration
   lcd.setCursor(0, 0);
+  lcd.print(F("InjCC: "));
+  lcd.print(INJ_CC_BY_MIN / 4);
+
+  // start listening to GPS
+  lcd.setCursor(0, 1);
   lcd.print(F("GPS   "));
   delay(1000);
 
