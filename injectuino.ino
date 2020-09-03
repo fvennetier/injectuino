@@ -701,9 +701,9 @@ void loop() {
     curInjMicros = SAFE_COPY(uint16_t, lastInjMicros);
     if (curSpeed > maxSpeed)
       maxSpeed = curSpeed;
-    if (realRpm > maxRpm && realRpm < maxRpm + 1500)
+    if (realRpm > maxRpm && realRpm < maxRpm + 250)
       maxRpm = realRpm;
-    if (curInjMicros > maxInjMicros && realRpm > 1500) {
+    if (curInjMicros > maxInjMicros && realRpm > 2000) {
       maxInjMicros = curInjMicros;
       maxInjMicrosRpm = realRpm;
     }
@@ -714,13 +714,12 @@ void loop() {
     }
   } else {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, NULL);
-    // Write log entry every 12.8s
-    if (refreshStep == 126) { // %16 -> 14
-      //writeLog();
+    // Security backup every 15 minutes (256*70*0.05/60) after the 7th
+    if (refreshStep == 126) {
       backupTimer++;
-      // Security backup every 13 minutes
-      if ((backupTimer % 64) == 0) {
+      if (backupTimer >= 70) {
         backup(true);
+        backupTimer = 0;
       }
     }
   }
