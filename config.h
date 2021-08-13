@@ -8,12 +8,16 @@
 //#define INJ_OFFSET_MICROS 720
 // Bosch 0280155968
 #define INJ_CC_BY_MIN 1660L
-#define INJ_OFFSET_MICROS 670
+#define INJ_OFFSET_MICROS 700
 
-#define TEMP_SENSOR_SERIES_RES 1000.0
+// Voltage source is low, compensate with increased
+// resistor value.
+//#define TEMP_SENSOR_SERIES_RES 1000.0
+#define TEMP_SENSOR_SERIES_RES 1100.0
 #define TEMP_SENSOR_NOM_RES 36.51
 #define TEMP_SENSOR_NOM_TEMP 120.0
-#define TEMP_SENSOR_COEF 4013.0
+//#define TEMP_SENSOR_COEF 4013.0
+#define TEMP_SENSOR_COEF 4130.0
 #define KELVIN 273.15
 
 #define SERIAL_SPEED 19200
