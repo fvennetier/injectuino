@@ -470,6 +470,7 @@ void printTimeDate() {
 void printMenu() {
   float dte;
   short hdop;
+  short sats;
   lcd.setCursor(0, 0);
   switch (mode) {
     case MODE_NORMAL: // -------------------------
@@ -516,7 +517,8 @@ void printMenu() {
       hdop = min(gps.hdop(), 9999);
       padPrintFloatShort(hdop, 2, 100);
       lcd.write('/');
-      padPrintShort(gps.satellites(), 2, '0');
+      sats = min(gps.satellites(), 99);
+      padPrintShort(sats, 2, '0');
       break; // ----------------------------------
     case MODE_ACTION:
       lcd.print(F("Total: "));
@@ -701,7 +703,7 @@ void loop() {
     curInjMicros = SAFE_COPY(uint16_t, lastInjMicros);
     if (curSpeed > maxSpeed)
       maxSpeed = curSpeed;
-    if (realRpm > maxRpm && realRpm < maxRpm + 250)
+    if (realRpm > maxRpm && realRpm < maxRpm + 500)
       maxRpm = realRpm;
     if (curInjMicros > maxInjMicros && realRpm > 2000) {
       maxInjMicros = curInjMicros;
