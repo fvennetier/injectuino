@@ -8,7 +8,7 @@
 //#define INJ_OFFSET_MICROS 720
 // Bosch 0280155968
 #define INJ_CC_BY_MIN 1660L
-#define INJ_OFFSET_MICROS 700
+#define INJ_OFFSET_MICROS 720
 
 // Voltage source is low, compensate with increased
 // resistor value.
