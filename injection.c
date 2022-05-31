@@ -16,6 +16,14 @@
   __tmp1; \
 })
 
+#define SAFE_COPY_NOINT(type_,var_) ({ \
+  volatile type_ __tmp0; \
+  cli(); \
+  __tmp0 = var_; \
+  sei(); \
+  __tmp0; \
+})
+
 static uint32_t lastInjMillis = 0;
 static uint32_t lastSampleTime = 0;
 static volatile uint32_t injMillis = 0;
@@ -37,7 +45,11 @@ void injInterrupt(void)
   if (digitalRead(INJ_READ_PIN) == LOW) {
     // Injector opening
     // Time elapsed since last opening
-    cycleBy4 = (uint16_t)((now - lastOpen) >> 2);
+    uint16_t cycleBy4_tmp = (uint16_t)((now - lastOpen) >> 2);
+	// Unfortunately we have glitches...
+    if (cycleBy4_tmp >= 1024) {
+      cycleBy4 = cycleBy4_tmp;
+    }
     lastOpen = now;
     // Move micros to millis, keep the carry
     injMillis += injMicros >> 10;  // injMicros / 1024
@@ -77,9 +89,11 @@ void injTakeSample(uint16_t voltage10)
   lastSampleTime = curTime;
 
   if (timeGap && timeGap < 5000uL && injGap > 0uL) {
+    uint32_t cycle = 4UL * SAFE_COPY(uint16_t, cycleBy4);
     dutyArr[sampleId % INJ_MEAN_SAMPLES] = (1024 * injGap) / timeGap;
     // (60 * 1000000 / 4) / (cycle / 4)
-    rpmArr[sampleId % RPM_MEAN_SAMPLES] = min(15000000UL / cycleBy4, 9999);
+    rpmArr[sampleId % RPM_MEAN_SAMPLES] =
+        min((uint16_t)(60000000 / cycle), 9999);
   } else {
     dutyArr[sampleId % INJ_MEAN_SAMPLES] = 0;
     rpmArr[sampleId % RPM_MEAN_SAMPLES] = 0;
@@ -118,7 +132,7 @@ void injGetSmoothRpm(uint16_t *rpm)
 void injGetRpm(uint16_t *rpm)
 {
   uint32_t cycle = 4UL * SAFE_COPY(uint16_t, cycleBy4);
-  *rpm = (uint16_t)(60 * 1000000 / cycle);
+  *rpm = min((uint16_t)(60 * 1000000 / cycle), 9999);
 }
 
 void injGetTotalLiters(float *totalLiters)
@@ -133,4 +147,3 @@ void injSetTotalLiters(float totalLiters) {
   lastInjMillis = injMillis;
   sei();
 }
-

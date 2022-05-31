@@ -103,7 +103,7 @@ int16_t temp = 0;
 
 // -- Timing ------------------
 uint32_t lastRefreshTime = 0;
-byte injRefreshMod = 4;
+byte injRefreshMod = 8;
 byte refreshStep = 0;
 byte backupTimer = 0;
 
@@ -663,9 +663,6 @@ void setup() {
 void loop() {
   uint32_t now = millis();
   readGps();
-  // We must print something to make the screen flicker
-  // fast enough so we don't see it flicker
-  printSpeed();
 
   if (now - lastRefreshTime < 50) {
     // Less than 50ms were elapsed, don't do anything
@@ -673,6 +670,10 @@ void loop() {
   }
   lastRefreshTime = now;
   refreshStep++;
+
+  // We must print something to make the screen flicker
+  // fast enough so we don't see it flicker
+  printSpeed();
 
   // Probe injection each 4 loops (200ms)
   if ((refreshStep % 4) == 0) {
@@ -704,17 +705,18 @@ void loop() {
     curInjMicros = SAFE_COPY(uint16_t, lastInjMicros);
     if (curSpeed > maxSpeed)
       maxSpeed = curSpeed;
-    if (realRpm > maxRpm && realRpm < maxRpm + 500)
+    if (realRpm > maxRpm && realRpm < maxRpm + 900)
       maxRpm = realRpm;
     if (curInjMicros > maxInjMicros && realRpm > 2000) {
       maxInjMicros = curInjMicros;
       maxInjMicrosRpm = realRpm;
     }
-    if (duty > maxDuty) {
+    if (duty > maxDuty && realRpm > 2500) {
       maxDuty = duty;
       maxDutyMicros = curInjMicros;
       maxDutyRpm = realRpm;
     }
+    printMenu();
   } else {
     gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, NULL, NULL);
     // Security backup every 15 minutes (256*70*0.05/60) after the 7th
@@ -726,5 +728,4 @@ void loop() {
       }
     }
   }
-  printMenu();
 }
